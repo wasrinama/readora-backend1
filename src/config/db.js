@@ -65,7 +65,7 @@ const initFallbackDb = () => {
 ----------------------------*/
 const connectMongo = async (uri) => {
   return mongoose.connect(uri, {
-    serverSelectionTimeoutMS: 5000,
+    serverSelectionTimeoutMS: 15000,
     maxPoolSize: 10
   });
 };
