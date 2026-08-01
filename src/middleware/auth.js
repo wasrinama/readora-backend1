@@ -42,56 +42,131 @@ export const verifyToken = async (req, res, next) => {
 
 export const verifyAdmin = (req, res, next) => {
   // In mock DB mode allow a relaxed admin flow to ease local/offline development:
-  // - Try to verify normally; if that fails and we're using the fallback DB,
-  //   pick an available admin user from the fallback DB and continue.
   const isMock = process.env.USE_MOCK_DB === 'true';
-
   const authHeader = req.headers.authorization;
 
   const tryAssignAdminFromFallback = () => {
     if (!isMock) return false;
     try {
       const db = readFallbackData();
-      const admin = db.users.find(u => u.role === 'admin') || db.users[0];
+      const admin = db.users.find(u => u.role === 'admin' || u.role === 'super_admin') || db.users[0];
       if (admin) {
         req.user = admin;
         return true;
       }
-    } catch (err) {
-      // ignore and fall through to forbidden
-    }
+    } catch (err) {}
     return false;
   };
 
-  // If mock DB is enabled, allow falling back to a stored admin when token
-  // verification fails or when a mock token is present.
   if (isMock) {
     if (authHeader && authHeader.startsWith('Bearer ')) {
       const token = authHeader.split(' ')[1];
       const jwtSecret = process.env.JWT_SECRET || 'bookstore_super_secret_key';
       try {
         const decoded = jwt.verify(token, jwtSecret);
-        // attach minimal user structure expected by handlers
         req.user = decoded;
-        if (req.user.role === 'admin') return next();
+        if (req.user.role === 'admin' || req.user.role === 'super_admin') return next();
       } catch (err) {
-        // invalid JWT for mock env, try fallback admin from JSON DB
         if (tryAssignAdminFromFallback()) return next();
       }
     } else {
-      // No auth header in mock mode — try to assign an admin anyway
       if (tryAssignAdminFromFallback()) return next();
     }
-
     return res.status(403).json({ message: 'Forbidden. Admin credentials required.' });
   }
 
-  // Non-mock (normal) flow — use verifyToken middleware to validate and then check role
+  // Non-mock flow
   verifyToken(req, res, () => {
-    if (req.user && req.user.role === 'admin') {
+    if (req.user && (req.user.role === 'admin' || req.user.role === 'super_admin')) {
       next();
     } else {
       res.status(403).json({ message: 'Forbidden. Admin credentials required.' });
+    }
+  });
+};
+
+export const verifySuperAdmin = (req, res, next) => {
+  const isMock = process.env.USE_MOCK_DB === 'true';
+  const authHeader = req.headers.authorization;
+
+  const tryAssignSuperFromFallback = () => {
+    if (!isMock) return false;
+    try {
+      const db = readFallbackData();
+      const superAdmin = db.users.find(u => u.role === 'super_admin') || db.users.find(u => u.role === 'admin') || db.users[0];
+      if (superAdmin) {
+        req.user = superAdmin;
+        return true;
+      }
+    } catch (err) {}
+    return false;
+  };
+
+  if (isMock) {
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.split(' ')[1];
+      const jwtSecret = process.env.JWT_SECRET || 'bookstore_super_secret_key';
+      try {
+        const decoded = jwt.verify(token, jwtSecret);
+        req.user = decoded;
+        if (req.user.role === 'super_admin') return next();
+      } catch (err) {
+        if (tryAssignSuperFromFallback()) return next();
+      }
+    } else {
+      if (tryAssignSuperFromFallback()) return next();
+    }
+    return res.status(403).json({ message: 'Forbidden. Super Admin credentials required.' });
+  }
+
+  verifyToken(req, res, () => {
+    if (req.user && req.user.role === 'super_admin') {
+      next();
+    } else {
+      res.status(403).json({ message: 'Forbidden. Super Admin credentials required.' });
+    }
+  });
+};
+
+export const verifyAdminOrStaff = (req, res, next) => {
+  const isMock = process.env.USE_MOCK_DB === 'true';
+  const authHeader = req.headers.authorization;
+
+  const tryAssignStaffFromFallback = () => {
+    if (!isMock) return false;
+    try {
+      const db = readFallbackData();
+      const staffUser = db.users.find(u => ['super_admin', 'admin', 'staff'].includes(u.role)) || db.users[0];
+      if (staffUser) {
+        req.user = staffUser;
+        return true;
+      }
+    } catch (err) {}
+    return false;
+  };
+
+  if (isMock) {
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.split(' ')[1];
+      const jwtSecret = process.env.JWT_SECRET || 'bookstore_super_secret_key';
+      try {
+        const decoded = jwt.verify(token, jwtSecret);
+        req.user = decoded;
+        if (['super_admin', 'admin', 'staff'].includes(req.user.role)) return next();
+      } catch (err) {
+        if (tryAssignStaffFromFallback()) return next();
+      }
+    } else {
+      if (tryAssignStaffFromFallback()) return next();
+    }
+    return res.status(403).json({ message: 'Forbidden. Admin or Staff credentials required.' });
+  }
+
+  verifyToken(req, res, () => {
+    if (req.user && ['super_admin', 'admin', 'staff'].includes(req.user.role)) {
+      next();
+    } else {
+      res.status(403).json({ message: 'Forbidden. Admin or Staff credentials required.' });
     }
   });
 };

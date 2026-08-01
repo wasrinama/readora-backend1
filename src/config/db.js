@@ -128,10 +128,15 @@ export const connectDB = async () => {
 ----------------------------*/
 export const readFallbackData = () => {
   try {
-    return JSON.parse(fs.readFileSync(fallbackDbPath, 'utf-8'));
+    const data = JSON.parse(fs.readFileSync(fallbackDbPath, 'utf-8'));
+    if (!data.users) data.users = [];
+    if (!data.books) data.books = [];
+    if (!data.orders) data.orders = [];
+    if (!data.categories) data.categories = [];
+    return data;
   } catch (err) {
     console.error('❌ Read fallback error:', err.message);
-    return { books: [], users: [], orders: [] };
+    return { books: [], users: [], orders: [], categories: [] };
   }
 };
 

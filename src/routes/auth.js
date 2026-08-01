@@ -8,68 +8,105 @@ const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'bookstore_super_secret_key';
 
 // @route   POST /api/auth/login
-// @desc    Phone number or static admin login
+// @desc    Phone number or static/database-backed admin/staff login
 router.post('/login', async (req, res) => {
   const { phoneNumber, name, username, password } = req.body;
+  const { verifyPassword } = await import('../utils/crypto.js');
 
-  // Static admin credentials check
+  // Username/Password authentication (Admin Panel login)
   if (username && password) {
-    if (username === 'admin' && password === 'admin123') {
-      const adminPhone = (process.env.ADMIN_PHONE || '0774454785').trim().replace(/\s+/g, '');
-      let user;
-      const isMock = process.env.USE_MOCK_DB === 'true';
+    const isMock = process.env.USE_MOCK_DB === 'true';
+    const adminPhone = (process.env.ADMIN_PHONE || '0774454785').trim().replace(/\s+/g, '');
+    let user;
 
-      try {
-        if (isMock) {
-          const db = readFallbackData();
-          user = db.users.find(u => u.role === 'admin' || u.phoneNumber === adminPhone);
+    try {
+      if (isMock) {
+        const db = readFallbackData();
+        // Check if there is a database user matching username
+        user = db.users.find(u => u.username === username);
+        
+        if (user) {
+          if (user.status === 'blocked') {
+            return res.status(403).json({ message: 'This account has been blocked.' });
+          }
+          const isPasswordValid = verifyPassword(password, user.password);
+          if (!isPasswordValid) {
+            return res.status(401).json({ message: 'Invalid credentials.' });
+          }
+        } else if (username === 'admin' && password === 'admin123') {
+          // Bootstrap static admin check
+          user = db.users.find(u => u.role === 'super_admin' || u.role === 'admin' || u.phoneNumber === adminPhone);
           if (!user) {
             user = {
               _id: 'user_admin',
               phoneNumber: adminPhone,
               name: 'Administrator',
               address: 'Head Office',
-              role: 'admin'
+              role: 'super_admin',
+              username: 'admin',
+              status: 'active'
             };
             db.users.push(user);
             writeFallbackData(db);
           }
         } else {
-          user = await User.findOne({ role: 'admin' });
+          return res.status(401).json({ message: 'Invalid credentials.' });
+        }
+      } else {
+        // Query MongoDB
+        user = await User.findOne({ username });
+
+        if (user) {
+          if (user.status === 'blocked') {
+            return res.status(403).json({ message: 'This account has been blocked.' });
+          }
+          const isPasswordValid = verifyPassword(password, user.password);
+          if (!isPasswordValid) {
+            return res.status(401).json({ message: 'Invalid credentials.' });
+          }
+        } else if (username === 'admin' && password === 'admin123') {
+          // Bootstrap static admin check
+          user = await User.findOne({ role: 'super_admin' }) || await User.findOne({ role: 'admin' });
           if (!user) {
             user = new User({
               phoneNumber: adminPhone,
               name: 'Administrator',
-              role: 'admin',
-              address: 'Head Office'
+              role: 'super_admin',
+              address: 'Head Office',
+              username: 'admin',
+              status: 'active'
             });
+            // We store a hashed password for bootstrap so they can update it
+            const { hashPassword } = await import('../utils/crypto.js');
+            user.password = hashPassword('admin123');
             await user.save();
           }
+        } else {
+          return res.status(401).json({ message: 'Invalid credentials.' });
         }
-
-        // Sign Token
-        const payload = {
-          id: user._id,
-          phoneNumber: user.phoneNumber,
-          role: user.role
-        };
-        const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '30d' });
-
-        return res.json({
-          token,
-          user: {
-            id: user._id,
-            name: user.name,
-            phoneNumber: user.phoneNumber,
-            address: user.address || '',
-            role: user.role
-          }
-        });
-      } catch (error) {
-        return res.status(500).json({ message: 'Admin login error', error: error.message });
       }
-    } else {
-      return res.status(401).json({ message: 'Invalid admin credentials.' });
+
+      // Sign Token
+      const payload = {
+        id: user._id || user.id,
+        phoneNumber: user.phoneNumber,
+        role: user.role
+      };
+      const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '30d' });
+
+      return res.json({
+        token,
+        user: {
+          id: user._id || user.id,
+          name: user.name,
+          phoneNumber: user.phoneNumber,
+          address: user.address || '',
+          role: user.role,
+          username: user.username || ''
+        }
+      });
+    } catch (error) {
+      return res.status(500).json({ message: 'Admin login error', error: error.message });
     }
   }
 
@@ -96,6 +133,10 @@ router.post('/login', async (req, res) => {
       const db = readFallbackData();
       user = db.users.find(u => u.phoneNumber === normalizedPhone);
       
+      if (user && user.status === 'blocked') {
+        return res.status(403).json({ message: 'This account has been blocked.' });
+      }
+
       if (!user) {
         // Create user
         user = {
@@ -103,7 +144,8 @@ router.post('/login', async (req, res) => {
           phoneNumber: normalizedPhone,
           name: name ? name.trim() : `Customer (${normalizedPhone.slice(-4)})`,
           address: '',
-          role: isAdmin(normalizedPhone) ? 'admin' : 'user'
+          role: isAdmin(normalizedPhone) ? 'admin' : 'user',
+          status: 'active'
         };
         db.users.push(user);
         writeFallbackData(db);
@@ -115,12 +157,17 @@ router.post('/login', async (req, res) => {
     } else {
       user = await User.findOne({ phoneNumber: normalizedPhone });
 
+      if (user && user.status === 'blocked') {
+        return res.status(403).json({ message: 'This account has been blocked.' });
+      }
+
       if (!user) {
         const role = isAdmin(normalizedPhone) ? 'admin' : 'user';
         user = new User({
           phoneNumber: normalizedPhone,
           name: name ? name.trim() : `Customer (${normalizedPhone.slice(-4)})`,
-          role
+          role,
+          status: 'active'
         });
         await user.save();
       } else if (name) {
