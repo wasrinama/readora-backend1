@@ -581,6 +581,24 @@ router.get('/category/:slug', async (req, res) => {
   }
 });
 
+// @route   GET /api/books/admin
+// @desc    Get all books including archived ones (Admin/Staff only)
+router.get('/admin', verifyAdminOrStaff, async (req, res) => {
+  const isMock = process.env.USE_MOCK_DB === 'true';
+  try {
+    let books = [];
+    if (isMock) {
+      const db = readFallbackData();
+      books = db.books || [];
+    } else {
+      books = await Book.find().sort({ createdAt: -1 });
+    }
+    res.json(books.map(addDynamicSlug));
+  } catch (error) {
+    res.status(500).json({ message: 'Error retrieving admin catalog', error: error.message });
+  }
+});
+
 // @route   GET /api/books/:id
 // @desc    Get a single book by ID
 router.get('/:id', async (req, res) => {
@@ -786,23 +804,7 @@ router.delete('/:id', verifyAdmin, async (req, res) => {
   }
 });
 
-// @route   GET /api/books/admin
-// @desc    Get all books including archived ones (Admin/Staff only)
-router.get('/admin', verifyAdminOrStaff, async (req, res) => {
-  const isMock = process.env.USE_MOCK_DB === 'true';
-  try {
-    let books = [];
-    if (isMock) {
-      const db = readFallbackData();
-      books = db.books || [];
-    } else {
-      books = await Book.find().sort({ createdAt: -1 });
-    }
-    res.json(books.map(addDynamicSlug));
-  } catch (error) {
-    res.status(500).json({ message: 'Error retrieving admin catalog', error: error.message });
-  }
-});
+
 
 // @route   PUT /api/books/:id/archive
 // @desc    Archive a book (Admin only)
