@@ -2,7 +2,7 @@ import express from 'express';
 import jwt from 'jsonwebtoken';
 import { readFallbackData, writeFallbackData } from '../config/db.js';
 import User from '../models/User.js';
-import { verifyToken } from '../middleware/auth.js';
+import { verifyToken, verifyAdmin, verifyAdminOrStaff } from '../middleware/auth.js';
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'bookstore_super_secret_key';
@@ -268,6 +268,99 @@ router.put('/profile', verifyToken, async (req, res) => {
     }
   } catch (error) {
     res.status(500).json({ message: 'Error updating profile', error: error.message });
+  }
+});
+
+// @route   GET /api/auth/users
+// @desc    Get all registered users/customers (Admin/Staff only)
+router.get('/users', verifyAdminOrStaff, async (req, res) => {
+  const isMock = process.env.USE_MOCK_DB === 'true';
+  try {
+    if (isMock) {
+      const db = readFallbackData();
+      const usersList = (db.users || []).map(u => ({
+        id: u._id || u.id,
+        _id: u._id || u.id,
+        name: u.name,
+        phoneNumber: u.phoneNumber,
+        address: u.address || '',
+        role: u.role || 'user',
+        status: u.status || 'active',
+        createdAt: u.createdAt || new Date().toISOString()
+      }));
+      res.json(usersList);
+    } else {
+      const users = await User.find().sort({ createdAt: -1 });
+      res.json(users);
+    }
+  } catch (error) {
+    res.status(500).json({ message: 'Error retrieving users list', error: error.message });
+  }
+});
+
+// @route   PUT /api/auth/users/:id/status
+// @desc    Toggle user status active/blocked (Admin/Staff only)
+router.put('/users/:id/status', verifyAdminOrStaff, async (req, res) => {
+  const { status } = req.body;
+  const isMock = process.env.USE_MOCK_DB === 'true';
+  const targetId = req.params.id;
+
+  if (!['active', 'blocked'].includes(status)) {
+    return res.status(400).json({ message: 'Invalid status value.' });
+  }
+
+  try {
+    if (isMock) {
+      const db = readFallbackData();
+      const index = db.users.findIndex(u => u._id === targetId || u.id === targetId);
+      if (index === -1) return res.status(404).json({ message: 'User not found.' });
+
+      db.users[index].status = status;
+      writeFallbackData(db);
+      res.json({ success: true, user: db.users[index] });
+    } else {
+      const user = await User.findById(targetId);
+      if (!user) return res.status(404).json({ message: 'User not found.' });
+
+      user.status = status;
+      await user.save();
+      res.json({ success: true, user });
+    }
+  } catch (error) {
+    res.status(500).json({ message: 'Error updating user status', error: error.message });
+  }
+});
+
+// @route   PUT /api/auth/users/:id/role
+// @desc    Update user authorization role (Admin only)
+router.put('/users/:id/role', verifyAdmin, async (req, res) => {
+  const { role } = req.body;
+  const isMock = process.env.USE_MOCK_DB === 'true';
+  const targetId = req.params.id;
+
+  if (!['super_admin', 'admin', 'staff', 'user'].includes(role)) {
+    return res.status(400).json({ message: 'Invalid role value.' });
+  }
+
+  try {
+    if (isMock) {
+      const db = readFallbackData();
+      const index = db.users.findIndex(u => u._id === targetId || u.id === targetId);
+      if (index === -1) return res.status(404).json({ message: 'User not found.' });
+
+      db.users[index].role = role;
+      writeFallbackData(db);
+      res.json({ success: true, user: db.users[index] });
+    } else {
+      const user = await User.findById(targetId);
+      if (!user) return res.status(404).json({ message: 'User not found.' });
+
+      user.role = role;
+      await user.save();
+      res.json({ success: true, user });
+    }
+  } catch (error) {
+    res.status(500).json({ message: 'Error updating user authorization role', error: error.message });
   }
 });
 
