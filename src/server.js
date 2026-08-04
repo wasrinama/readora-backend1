@@ -9,6 +9,9 @@ import settingsRoutes from './routes/settings.js';
 import categoryRoutes from './routes/categories.js';
 import seoRoutes from './routes/seo.js';
 import analyticsRoutes from './routes/analytics.js';
+import authorRoutes from './routes/authors.js';
+import publisherRoutes from './routes/publishers.js';
+import bannerRoutes from './routes/banners.js';
 
 // Load environment variables
 dotenv.config();
@@ -45,6 +48,9 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/seo', seoRoutes);
 app.use('/api/analytics', analyticsRoutes);
+app.use('/api/authors', authorRoutes);
+app.use('/api/publishers', publisherRoutes);
+app.use('/api/banners', bannerRoutes);
 
 // Database connection initialization
 await connectDB();

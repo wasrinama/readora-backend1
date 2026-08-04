@@ -1,7 +1,7 @@
 import express from 'express';
 import { readFallbackData, writeFallbackData } from '../config/db.js';
 import Category from '../models/Category.js';
-import { verifyAdmin } from '../middleware/auth.js';
+import { verifyAdmin, verifyAdminOrStaff } from '../middleware/auth.js';
 
 const router = express.Router();
 
@@ -25,8 +25,8 @@ router.get('/', async (req, res) => {
 });
 
 // @route   POST /api/categories
-// @desc    Create a new category (Admin only)
-router.post('/', verifyAdmin, async (req, res) => {
+// @desc    Create a new category (Admin/Staff only)
+router.post('/', verifyAdminOrStaff, async (req, res) => {
   const { name } = req.body;
   const isMock = process.env.USE_MOCK_DB === 'true';
 
@@ -70,9 +70,62 @@ router.post('/', verifyAdmin, async (req, res) => {
   }
 });
 
+// @route   PUT /api/categories/:id
+// @desc    Update category name (Admin/Staff only)
+router.put('/:id', verifyAdminOrStaff, async (req, res) => {
+  const { name } = req.body;
+  const isMock = process.env.USE_MOCK_DB === 'true';
+  const categoryId = req.params.id;
+
+  if (!name || !name.trim()) {
+    return res.status(400).json({ message: 'Category name is required' });
+  }
+
+  const categoryName = name.trim();
+
+  try {
+    if (isMock) {
+      const db = readFallbackData();
+      if (!db.categories) db.categories = [];
+
+      const index = db.categories.findIndex(c => c._id === categoryId);
+      if (index === -1) {
+        return res.status(404).json({ message: 'Category not found' });
+      }
+
+      const exists = db.categories.some(c => c._id !== categoryId && c.name.toLowerCase() === categoryName.toLowerCase());
+      if (exists) {
+        return res.status(400).json({ message: 'Another category with this name already exists' });
+      }
+
+      db.categories[index].name = categoryName;
+      writeFallbackData(db);
+      res.json(db.categories[index]);
+    } else {
+      const escapedCategoryName = categoryName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const exists = await Category.findOne({ _id: { $ne: categoryId }, name: { $regex: new RegExp(`^${escapedCategoryName}$`, 'i') } });
+      if (exists) {
+        return res.status(400).json({ message: 'Another category with this name already exists' });
+      }
+
+      const updatedCategory = await Category.findByIdAndUpdate(
+        categoryId,
+        { name: categoryName },
+        { new: true }
+      );
+      if (!updatedCategory) {
+        return res.status(404).json({ message: 'Category not found' });
+      }
+      res.json(updatedCategory);
+    }
+  } catch (error) {
+    res.status(500).json({ message: 'Error updating category', error: error.message });
+  }
+});
+
 // @route   DELETE /api/categories/:id
-// @desc    Delete a category (Admin only)
-router.delete('/:id', verifyAdmin, async (req, res) => {
+// @desc    Delete a category (Admin/Staff only)
+router.delete('/:id', verifyAdminOrStaff, async (req, res) => {
   const isMock = process.env.USE_MOCK_DB === 'true';
   const categoryId = req.params.id;
 
