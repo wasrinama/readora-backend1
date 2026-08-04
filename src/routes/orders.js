@@ -1,7 +1,7 @@
 import express from 'express';
 import { readFallbackData, writeFallbackData } from '../config/db.js';
 import Order from '../models/Order.js';
-import { verifyAdmin, verifyToken } from '../middleware/auth.js';
+import { verifyAdmin, verifyAdminOrStaff, verifyToken } from '../middleware/auth.js';
 
 const router = express.Router();
 
@@ -71,12 +71,14 @@ router.put('/:id/cancel', verifyToken, async (req, res) => {
 // @route   POST /api/orders
 // @desc    Record order in database before WhatsApp redirect
 router.post('/', async (req, res) => {
-  const { customerName, customerPhone, customerAddress, items, totalPrice } = req.body;
+  const { customerName, customerPhone, customerAddress, items, totalPrice, paymentMethod } = req.body;
   const isMock = process.env.USE_MOCK_DB === 'true';
 
   if (!customerName || !customerPhone || !customerAddress || !items || !items.length || !totalPrice) {
     return res.status(400).json({ message: 'Missing required order details.' });
   }
+
+  const selectedPaymentMethod = paymentMethod || 'cod';
 
   try {
     if (isMock) {
@@ -89,6 +91,9 @@ router.post('/', async (req, res) => {
         items,
         totalPrice: Number(totalPrice),
         status: 'pending',
+        paymentMethod: selectedPaymentMethod,
+        paymentStatus: 'unpaid',
+        paymentSlip: '',
         createdAt: new Date().toISOString()
       };
 
@@ -101,7 +106,10 @@ router.post('/', async (req, res) => {
         customerPhone,
         customerAddress,
         items,
-        totalPrice
+        totalPrice,
+        paymentMethod: selectedPaymentMethod,
+        paymentStatus: 'unpaid',
+        paymentSlip: ''
       });
 
       await newOrder.save();
@@ -113,8 +121,8 @@ router.post('/', async (req, res) => {
 });
 
 // @route   GET /api/orders
-// @desc    Get all orders (Admin only)
-router.get('/', verifyAdmin, async (req, res) => {
+// @desc    Get all orders (Admin/Staff only)
+router.get('/', verifyAdminOrStaff, async (req, res) => {
   const isMock = process.env.USE_MOCK_DB === 'true';
 
   try {
@@ -133,12 +141,12 @@ router.get('/', verifyAdmin, async (req, res) => {
 });
 
 // @route   PUT /api/orders/:id/status
-// @desc    Update order status (Admin only)
-router.put('/:id/status', verifyAdmin, async (req, res) => {
+// @desc    Update order status (Admin/Staff only)
+router.put('/:id/status', verifyAdminOrStaff, async (req, res) => {
   const { status } = req.body;
   const isMock = process.env.USE_MOCK_DB === 'true';
 
-  if (!['pending', 'completed', 'cancelled'].includes(status)) {
+  if (!['pending', 'processing', 'shipped', 'completed', 'cancelled'].includes(status)) {
     return res.status(400).json({ message: 'Invalid status.' });
   }
 
@@ -165,6 +173,76 @@ router.put('/:id/status', verifyAdmin, async (req, res) => {
     }
   } catch (error) {
     res.status(500).json({ message: 'Error updating order status', error: error.message });
+  }
+});
+
+// @route   PUT /api/orders/:id/upload-slip
+// @desc    Upload bank transfer slip (Customer only)
+router.put('/:id/upload-slip', verifyToken, async (req, res) => {
+  const { paymentSlip } = req.body;
+  if (!paymentSlip) {
+    return res.status(400).json({ message: 'Please provide a payment slip image/link.' });
+  }
+
+  const isMock = process.env.USE_MOCK_DB === 'true';
+
+  try {
+    if (isMock) {
+      const db = readFallbackData();
+      const index = db.orders.findIndex(o => o._id === req.params.id);
+      if (index === -1) {
+        return res.status(404).json({ message: 'Order not found' });
+      }
+      db.orders[index].paymentSlip = paymentSlip;
+      db.orders[index].paymentStatus = 'pending';
+      writeFallbackData(db);
+      res.json(db.orders[index]);
+    } else {
+      const order = await Order.findById(req.params.id);
+      if (!order) {
+        return res.status(404).json({ message: 'Order not found' });
+      }
+      order.paymentSlip = paymentSlip;
+      order.paymentStatus = 'pending';
+      await order.save();
+      res.json(order);
+    }
+  } catch (error) {
+    res.status(500).json({ message: 'Error uploading payment slip', error: error.message });
+  }
+});
+
+// @route   PUT /api/orders/:id/verify-payment
+// @desc    Verify payment slip status (Admin/Staff only)
+router.put('/:id/verify-payment', verifyAdminOrStaff, async (req, res) => {
+  const { status } = req.body; // 'paid' or 'unpaid'
+  if (!['paid', 'unpaid', 'pending'].includes(status)) {
+    return res.status(400).json({ message: 'Invalid payment status.' });
+  }
+
+  const isMock = process.env.USE_MOCK_DB === 'true';
+
+  try {
+    if (isMock) {
+      const db = readFallbackData();
+      const index = db.orders.findIndex(o => o._id === req.params.id);
+      if (index === -1) {
+        return res.status(404).json({ message: 'Order not found' });
+      }
+      db.orders[index].paymentStatus = status;
+      writeFallbackData(db);
+      res.json(db.orders[index]);
+    } else {
+      const order = await Order.findById(req.params.id);
+      if (!order) {
+        return res.status(404).json({ message: 'Order not found' });
+      }
+      order.paymentStatus = status;
+      await order.save();
+      res.json(order);
+    }
+  } catch (error) {
+    res.status(500).json({ message: 'Error verifying payment', error: error.message });
   }
 });
 

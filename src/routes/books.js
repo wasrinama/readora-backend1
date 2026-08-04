@@ -1,6 +1,7 @@
 import express from 'express';
 import { readFallbackData, writeFallbackData } from '../config/db.js';
 import Book from '../models/Book.js';
+import StockLog from '../models/StockLog.js';
 import { verifyAdmin, verifyAdminOrStaff } from '../middleware/auth.js';
 import { slugify } from '../utils/slugify.js';
 
@@ -940,6 +941,103 @@ router.post('/bulk-import', verifyAdmin, async (req, res) => {
     res.status(201).json({ message: `Successfully imported ${importedBooks.length} books.`, count: importedBooks.length });
   } catch (error) {
     res.status(500).json({ message: 'Error importing books', error: error.message });
+  }
+});
+
+// @route   PUT /api/books/:id/stock
+// @desc    Manually adjust book stock & record a transaction log (Admin/Staff only)
+router.put('/:id/stock', verifyAdminOrStaff, async (req, res) => {
+  const { adjustment, note } = req.body;
+  if (adjustment === undefined || isNaN(Number(adjustment))) {
+    return res.status(400).json({ message: 'Adjustment value must be a valid number.' });
+  }
+
+  const adjVal = Number(adjustment);
+  const isMock = process.env.USE_MOCK_DB === 'true';
+
+  try {
+    if (isMock) {
+      const db = readFallbackData();
+      const index = db.books.findIndex(b => b._id === req.params.id);
+      if (index === -1) {
+        return res.status(404).json({ message: 'Book not found' });
+      }
+
+      const prevStock = Number(db.books[index].stock || 0);
+      const newStock = Math.max(0, prevStock + adjVal);
+      db.books[index].stock = newStock;
+      
+      // Update availabilityStatus based on new stock
+      db.books[index].availabilityStatus = newStock === 0 ? 'Out of Stock' : 'In Stock';
+
+      // Create log entry
+      if (!db.stockLogs) db.stockLogs = [];
+      const newLog = {
+        _id: 'log_' + Date.now(),
+        bookId: req.params.id,
+        bookTitle: db.books[index].title,
+        operatorName: req.user?.name || 'Staff User',
+        actionType: adjVal >= 0 ? 'increase' : 'decrease',
+        quantity: Math.abs(adjVal),
+        prevStock,
+        newStock,
+        note: note || '',
+        createdAt: new Date().toISOString()
+      };
+      db.stockLogs.push(newLog);
+
+      writeFallbackData(db);
+      res.json({ success: true, book: addDynamicSlug(db.books[index]), log: newLog });
+    } else {
+      const book = await Book.findById(req.params.id);
+      if (!book) {
+        return res.status(404).json({ message: 'Book not found' });
+      }
+
+      const prevStock = Number(book.stock || 0);
+      const newStock = Math.max(0, prevStock + adjVal);
+      book.stock = newStock;
+      book.availabilityStatus = newStock === 0 ? 'Out of Stock' : 'In Stock';
+      await book.save();
+
+      // Create log entry
+      const log = new StockLog({
+        bookId: book._id,
+        bookTitle: book.title,
+        operatorName: req.user?.name || 'Staff User',
+        actionType: adjVal >= 0 ? 'increase' : 'decrease',
+        quantity: Math.abs(adjVal),
+        prevStock,
+        newStock,
+        note: note || ''
+      });
+      await log.save();
+
+      res.json({ success: true, book: addDynamicSlug(book), log });
+    }
+  } catch (error) {
+    res.status(500).json({ message: 'Error adjusting stock', error: error.message });
+  }
+});
+
+// @route   GET /api/books/:id/stock-logs
+// @desc    Retrieve stock adjustment logs for a specific book (Admin/Staff only)
+router.get('/:id/stock-logs', verifyAdminOrStaff, async (req, res) => {
+  const isMock = process.env.USE_MOCK_DB === 'true';
+
+  try {
+    let logs = [];
+    if (isMock) {
+      const db = readFallbackData();
+      logs = (db.stockLogs || []).filter(l => l.bookId === req.params.id)
+        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    } else {
+      logs = await StockLog.find({ bookId: req.params.id })
+        .sort({ createdAt: -1 });
+    }
+    res.json(logs);
+  } catch (error) {
+    res.status(500).json({ message: 'Error retrieving stock logs', error: error.message });
   }
 });
 
