@@ -129,8 +129,7 @@ router.get('/dashboard', verifyAdminOrStaff, async (req, res) => {
       // Recent Orders (last 8)
       recentOrders = await Order.find()
         .sort({ createdAt: -1 })
-        .limit(8)
-        .populate('userId', 'name phoneNumber');
+        .limit(8);
 
       // Recent Customers (last 8)
       recentCustomers = await User.find({ role: 'user' })
