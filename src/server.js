@@ -8,6 +8,7 @@ import orderRoutes from './routes/orders.js';
 import settingsRoutes from './routes/settings.js';
 import categoryRoutes from './routes/categories.js';
 import seoRoutes from './routes/seo.js';
+import analyticsRoutes from './routes/analytics.js';
 
 // Load environment variables
 dotenv.config();
@@ -43,6 +44,7 @@ app.use('/api/orders', orderRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/seo', seoRoutes);
+app.use('/api/analytics', analyticsRoutes);
 
 // Database connection initialization
 await connectDB();

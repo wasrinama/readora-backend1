@@ -74,6 +74,43 @@ const bookSchema = new mongoose.Schema({
     enum: ['In Stock', 'Out of Stock', 'Pre-Order'],
     default: 'In Stock'
   },
+  images: {
+    type: [String],
+    default: []
+  },
+  tamilTitle: {
+    type: String,
+    default: ''
+  },
+  englishTitle: {
+    type: String,
+    default: ''
+  },
+  sinhalaTitle: {
+    type: String,
+    default: ''
+  },
+  discount: {
+    type: Number,
+    default: 0
+  },
+  bestSeller: {
+    type: Boolean,
+    default: false
+  },
+  newArrival: {
+    type: Boolean,
+    default: false
+  },
+  status: {
+    type: String,
+    enum: ['active', 'archived'],
+    default: 'active'
+  },
+  views: {
+    type: Number,
+    default: 0
+  },
   slug: {
     type: String,
     trim: true

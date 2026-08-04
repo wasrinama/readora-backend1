@@ -1,7 +1,7 @@
 import express from 'express';
 import { readFallbackData, writeFallbackData } from '../config/db.js';
 import Book from '../models/Book.js';
-import { verifyAdmin } from '../middleware/auth.js';
+import { verifyAdmin, verifyAdminOrStaff } from '../middleware/auth.js';
 import { slugify } from '../utils/slugify.js';
 
 const router = express.Router();
@@ -283,7 +283,7 @@ function scoreBookRelevance(book, search) {
 // @route   GET /api/books
 // @desc    Get all books with optional search and category filters
 router.get('/', async (req, res) => {
-  const { search, category, featured, language } = req.query;
+  const { search, category, featured, language, includeArchived } = req.query;
   const isMock = process.env.USE_MOCK_DB === 'true';
 
   try {
@@ -291,11 +291,16 @@ router.get('/', async (req, res) => {
 
     if (isMock) {
       const db = readFallbackData();
-      books = [...db.books];
+      books = db.books || [];
+
+      // Exclude archived books by default
+      if (includeArchived !== 'true') {
+        books = books.filter(b => b.status !== 'archived');
+      }
 
       // Filter by category
       if (category && category !== 'All') {
-        books = books.filter(b => b.category.toLowerCase() === category.toLowerCase());
+        books = books.filter(b => b.category && b.category.toLowerCase() === category.toLowerCase());
       }
 
       // Filter by language
@@ -309,6 +314,11 @@ router.get('/', async (req, res) => {
       }
     } else {
       let filter = {};
+
+      // Exclude archived books by default
+      if (includeArchived !== 'true') {
+        filter.status = { $ne: 'archived' };
+      }
 
       if (category && category !== 'All') {
         const escapedCategory = category.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -600,7 +610,8 @@ router.get('/:id', async (req, res) => {
 router.post('/', verifyAdmin, async (req, res) => {
   const { 
     title, author, price, category, description, coverImage, stock, featured, language,
-    publisher, pages, publishYear, isbn, availabilityStatus 
+    publisher, pages, publishYear, isbn, availabilityStatus,
+    images, tamilTitle, englishTitle, sinhalaTitle, discount, bestSeller, newArrival, status
   } = req.body;
   const isMock = process.env.USE_MOCK_DB === 'true';
 
@@ -627,7 +638,16 @@ router.post('/', verifyAdmin, async (req, res) => {
         pages: Number(pages) || 0,
         publishYear: Number(publishYear) || new Date().getFullYear(),
         isbn: isbn || '',
-        availabilityStatus: availabilityStatus || 'In Stock'
+        availabilityStatus: availabilityStatus || 'In Stock',
+        images: Array.isArray(images) ? images : [],
+        tamilTitle: tamilTitle || '',
+        englishTitle: englishTitle || '',
+        sinhalaTitle: sinhalaTitle || '',
+        discount: Number(discount || 0),
+        bestSeller: bestSeller === true || bestSeller === 'true',
+        newArrival: newArrival === true || newArrival === 'true',
+        status: status || 'active',
+        views: 0
       };
 
       db.books.push(newBook);
@@ -648,7 +668,15 @@ router.post('/', verifyAdmin, async (req, res) => {
         pages,
         publishYear,
         isbn,
-        availabilityStatus
+        availabilityStatus,
+        images: Array.isArray(images) ? images : [],
+        tamilTitle: tamilTitle || '',
+        englishTitle: englishTitle || '',
+        sinhalaTitle: sinhalaTitle || '',
+        discount,
+        bestSeller: bestSeller === true || bestSeller === 'true',
+        newArrival: newArrival === true || newArrival === 'true',
+        status: status || 'active'
       });
 
       await newBook.save();
@@ -665,7 +693,8 @@ router.put('/:id', verifyAdmin, async (req, res) => {
   const isMock = process.env.USE_MOCK_DB === 'true';
   const { 
     title, author, price, category, description, coverImage, stock, featured, language,
-    publisher, pages, publishYear, isbn, availabilityStatus 
+    publisher, pages, publishYear, isbn, availabilityStatus,
+    images, tamilTitle, englishTitle, sinhalaTitle, discount, bestSeller, newArrival, status
   } = req.body;
 
   try {
@@ -692,7 +721,15 @@ router.put('/:id', verifyAdmin, async (req, res) => {
         pages: pages !== undefined ? Number(pages) : db.books[index].pages,
         publishYear: publishYear !== undefined ? Number(publishYear) : db.books[index].publishYear,
         isbn: isbn !== undefined ? isbn : db.books[index].isbn,
-        availabilityStatus: availabilityStatus || db.books[index].availabilityStatus
+        availabilityStatus: availabilityStatus || db.books[index].availabilityStatus,
+        images: Array.isArray(images) ? images : db.books[index].images || [],
+        tamilTitle: tamilTitle !== undefined ? tamilTitle : db.books[index].tamilTitle || '',
+        englishTitle: englishTitle !== undefined ? englishTitle : db.books[index].englishTitle || '',
+        sinhalaTitle: sinhalaTitle !== undefined ? sinhalaTitle : db.books[index].sinhalaTitle || '',
+        discount: discount !== undefined ? Number(discount) : db.books[index].discount || 0,
+        bestSeller: bestSeller !== undefined ? (bestSeller === true || bestSeller === 'true') : db.books[index].bestSeller || false,
+        newArrival: newArrival !== undefined ? (newArrival === true || newArrival === 'true') : db.books[index].newArrival || false,
+        status: status || db.books[index].status || 'active'
       };
 
       db.books[index] = updatedBook;
@@ -703,7 +740,8 @@ router.put('/:id', verifyAdmin, async (req, res) => {
         req.params.id,
         { 
           title, author, price, category, description, coverImage, stock, featured, language,
-          publisher, pages, publishYear, isbn, availabilityStatus 
+          publisher, pages, publishYear, isbn, availabilityStatus,
+          images, tamilTitle, englishTitle, sinhalaTitle, discount, bestSeller, newArrival, status
         },
         { new: true, runValidators: true }
       );
@@ -744,6 +782,164 @@ router.delete('/:id', verifyAdmin, async (req, res) => {
     }
   } catch (error) {
     res.status(500).json({ message: 'Error deleting book', error: error.message });
+  }
+});
+
+// @route   GET /api/books/admin
+// @desc    Get all books including archived ones (Admin/Staff only)
+router.get('/admin', verifyAdminOrStaff, async (req, res) => {
+  const isMock = process.env.USE_MOCK_DB === 'true';
+  try {
+    let books = [];
+    if (isMock) {
+      const db = readFallbackData();
+      books = db.books || [];
+    } else {
+      books = await Book.find().sort({ createdAt: -1 });
+    }
+    res.json(books.map(addDynamicSlug));
+  } catch (error) {
+    res.status(500).json({ message: 'Error retrieving admin catalog', error: error.message });
+  }
+});
+
+// @route   PUT /api/books/:id/archive
+// @desc    Archive a book (Admin only)
+router.put('/:id/archive', verifyAdmin, async (req, res) => {
+  const isMock = process.env.USE_MOCK_DB === 'true';
+  try {
+    if (isMock) {
+      const db = readFallbackData();
+      const index = db.books.findIndex(b => b._id === req.params.id);
+      if (index === -1) {
+        return res.status(404).json({ message: 'Book not found' });
+      }
+      db.books[index].status = 'archived';
+      writeFallbackData(db);
+      res.json(addDynamicSlug(db.books[index]));
+    } else {
+      const book = await Book.findById(req.params.id);
+      if (!book) {
+        return res.status(404).json({ message: 'Book not found' });
+      }
+      book.status = 'archived';
+      await book.save();
+      res.json(addDynamicSlug(book));
+    }
+  } catch (error) {
+    res.status(500).json({ message: 'Error archiving book', error: error.message });
+  }
+});
+
+// @route   PUT /api/books/:id/restore
+// @desc    Restore an archived book (Admin only)
+router.put('/:id/restore', verifyAdmin, async (req, res) => {
+  const isMock = process.env.USE_MOCK_DB === 'true';
+  try {
+    if (isMock) {
+      const db = readFallbackData();
+      const index = db.books.findIndex(b => b._id === req.params.id);
+      if (index === -1) {
+        return res.status(404).json({ message: 'Book not found' });
+      }
+      db.books[index].status = 'active';
+      writeFallbackData(db);
+      res.json(addDynamicSlug(db.books[index]));
+    } else {
+      const book = await Book.findById(req.params.id);
+      if (!book) {
+        return res.status(404).json({ message: 'Book not found' });
+      }
+      book.status = 'active';
+      await book.save();
+      res.json(addDynamicSlug(book));
+    }
+  } catch (error) {
+    res.status(500).json({ message: 'Error restoring book', error: error.message });
+  }
+});
+
+// @route   POST /api/books/bulk-import
+// @desc    Bulk import books (Admin only)
+router.post('/bulk-import', verifyAdmin, async (req, res) => {
+  const { books } = req.body;
+  if (!books || !Array.isArray(books)) {
+    return res.status(400).json({ message: 'Payload must contain a books array.' });
+  }
+
+  const isMock = process.env.USE_MOCK_DB === 'true';
+
+  try {
+    const importedBooks = [];
+    if (isMock) {
+      const db = readFallbackData();
+      for (const b of books) {
+        if (!b.title || !b.author || !b.price || !b.category) continue;
+        const newBook = {
+          _id: b._id || 'book_' + Date.now() + Math.random().toString(36).substr(2, 5),
+          title: b.title,
+          author: b.author,
+          price: Number(b.price),
+          category: b.category,
+          description: b.description || 'No description available.',
+          coverImage: b.coverImage || 'https://images.unsplash.com/photo-1543002588-bfa74002ed7e?auto=format&fit=crop&q=80&w=600',
+          images: Array.isArray(b.images) ? b.images : [],
+          tamilTitle: b.tamilTitle || '',
+          englishTitle: b.englishTitle || '',
+          sinhalaTitle: b.sinhalaTitle || '',
+          discount: Number(b.discount || 0),
+          stock: Number(b.stock !== undefined ? b.stock : 10),
+          language: b.language || 'English',
+          publisher: b.publisher || '',
+          pages: Number(b.pages || 0),
+          publishYear: Number(b.publishYear || new Date().getFullYear()),
+          isbn: b.isbn || '',
+          availabilityStatus: b.availabilityStatus || 'In Stock',
+          bestSeller: b.bestSeller === true || b.bestSeller === 'true',
+          newArrival: b.newArrival === true || b.newArrival === 'true',
+          status: b.status || 'active',
+          views: 0,
+          slug: b.slug || slugify(b.title),
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+        db.books.push(newBook);
+        importedBooks.push(newBook);
+      }
+      writeFallbackData(db);
+    } else {
+      for (const b of books) {
+        if (!b.title || !b.author || !b.price || !b.category) continue;
+        const newBook = new Book({
+          title: b.title,
+          author: b.author,
+          price: Number(b.price),
+          category: b.category,
+          description: b.description || 'No description available.',
+          coverImage: b.coverImage,
+          images: Array.isArray(b.images) ? b.images : [],
+          tamilTitle: b.tamilTitle || '',
+          englishTitle: b.englishTitle || '',
+          sinhalaTitle: b.sinhalaTitle || '',
+          discount: Number(b.discount || 0),
+          stock: Number(b.stock !== undefined ? b.stock : 10),
+          language: b.language || 'English',
+          publisher: b.publisher || '',
+          pages: Number(b.pages || 0),
+          publishYear: Number(b.publishYear || new Date().getFullYear()),
+          isbn: b.isbn || '',
+          availabilityStatus: b.availabilityStatus || 'In Stock',
+          bestSeller: b.bestSeller === true || b.bestSeller === 'true',
+          newArrival: b.newArrival === true || b.newArrival === 'true',
+          status: b.status || 'active'
+        });
+        await newBook.save();
+        importedBooks.push(newBook);
+      }
+    }
+    res.status(201).json({ message: `Successfully imported ${importedBooks.length} books.`, count: importedBooks.length });
+  } catch (error) {
+    res.status(500).json({ message: 'Error importing books', error: error.message });
   }
 });
 
