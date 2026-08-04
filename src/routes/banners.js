@@ -45,9 +45,9 @@ router.get('/admin', verifyAdminOrStaff, async (req, res) => {
 // @route   POST /api/banners
 // @desc    Create a promotional banner (Admin/Staff only)
 router.post('/', verifyAdminOrStaff, async (req, res) => {
-  const { title, imageUrl, link, active, order } = req.body;
-  if (!title || !imageUrl) {
-    return res.status(400).json({ message: 'Banner title and image URL are required.' });
+  const { title, imageUrl, link, active, order, textColor } = req.body;
+  if (!imageUrl) {
+    return res.status(400).json({ message: 'Banner image URL is required.' });
   }
 
   const isMock = process.env.USE_MOCK_DB === 'true';
@@ -59,7 +59,8 @@ router.post('/', verifyAdminOrStaff, async (req, res) => {
 
       const newBanner = {
         _id: 'banner_' + Date.now(),
-        title: title.trim(),
+        title: title ? title.trim() : '',
+        textColor: textColor || '#ffffff',
         imageUrl: imageUrl.trim(),
         link: link || '/books',
         active: active !== false,
@@ -72,7 +73,8 @@ router.post('/', verifyAdminOrStaff, async (req, res) => {
       res.status(201).json(newBanner);
     } else {
       const newBanner = new Banner({
-        title: title.trim(),
+        title: title ? title.trim() : '',
+        textColor: textColor || '#ffffff',
         imageUrl: imageUrl.trim(),
         link: link || '/books',
         active: active !== false,
@@ -89,7 +91,7 @@ router.post('/', verifyAdminOrStaff, async (req, res) => {
 // @route   PUT /api/banners/:id
 // @desc    Update a banner details (Admin/Staff only)
 router.put('/:id', verifyAdminOrStaff, async (req, res) => {
-  const { title, imageUrl, link, active, order } = req.body;
+  const { title, imageUrl, link, active, order, textColor } = req.body;
   const isMock = process.env.USE_MOCK_DB === 'true';
 
   try {
@@ -100,7 +102,8 @@ router.put('/:id', verifyAdminOrStaff, async (req, res) => {
 
       db.banners[index] = {
         ...db.banners[index],
-        title: title !== undefined ? title.trim() : db.banners[index].title,
+        title: title !== undefined ? (title ? title.trim() : '') : db.banners[index].title,
+        textColor: textColor !== undefined ? textColor : db.banners[index].textColor,
         imageUrl: imageUrl !== undefined ? imageUrl.trim() : db.banners[index].imageUrl,
         link: link !== undefined ? link : db.banners[index].link,
         active: active !== undefined ? active === true : db.banners[index].active,
@@ -111,7 +114,8 @@ router.put('/:id', verifyAdminOrStaff, async (req, res) => {
       res.json(db.banners[index]);
     } else {
       const updateData = {};
-      if (title !== undefined) updateData.title = title.trim();
+      if (title !== undefined) updateData.title = title ? title.trim() : '';
+      if (textColor !== undefined) updateData.textColor = textColor;
       if (imageUrl !== undefined) updateData.imageUrl = imageUrl.trim();
       if (link !== undefined) updateData.link = link;
       if (active !== undefined) updateData.active = active;
