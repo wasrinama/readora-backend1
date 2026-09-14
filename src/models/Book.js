@@ -94,6 +94,16 @@ const bookSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
+  discountPercent: {
+    type: Number,
+    default: 0,
+    min: 0,
+    max: 100
+  },
+  isOffer: {
+    type: Boolean,
+    default: false
+  },
   bestSeller: {
     type: Boolean,
     default: false

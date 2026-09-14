@@ -284,7 +284,7 @@ function scoreBookRelevance(book, search) {
 // @route   GET /api/books
 // @desc    Get all books with optional search and category filters
 router.get('/', async (req, res) => {
-  const { search, category, featured, language, includeArchived } = req.query;
+  const { search, category, featured, language, includeArchived, offers } = req.query;
   const isMock = process.env.USE_MOCK_DB === 'true';
 
   try {
@@ -299,8 +299,16 @@ router.get('/', async (req, res) => {
         books = books.filter(b => b.status !== 'archived');
       }
 
-      // Filter by category
-      if (category && category !== 'All') {
+      // Filter by category or offers
+      const isOffersFilter = offers === 'true' || (category && (category.toLowerCase() === 'offers' || category.toLowerCase() === 'special offers'));
+      if (isOffersFilter) {
+        books = books.filter(b => 
+          (b.category && (b.category.toLowerCase() === 'offers' || b.category.toLowerCase() === 'special offers')) ||
+          (b.discount && Number(b.discount) > 0) ||
+          (b.discountPercent && Number(b.discountPercent) > 0) ||
+          b.isOffer === true
+        );
+      } else if (category && category !== 'All') {
         books = books.filter(b => b.category && b.category.toLowerCase() === category.toLowerCase());
       }
 
@@ -321,7 +329,15 @@ router.get('/', async (req, res) => {
         filter.status = { $ne: 'archived' };
       }
 
-      if (category && category !== 'All') {
+      const isOffersFilter = offers === 'true' || (category && (category.toLowerCase() === 'offers' || category.toLowerCase() === 'special offers'));
+      if (isOffersFilter) {
+        filter.$or = [
+          { category: { $regex: /^offers$|^special offers$/i } },
+          { discount: { $gt: 0 } },
+          { discountPercent: { $gt: 0 } },
+          { isOffer: true }
+        ];
+      } else if (category && category !== 'All') {
         const escapedCategory = category.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         filter.category = { $regex: new RegExp(`^${escapedCategory}$`, 'i') };
       }
@@ -630,13 +646,21 @@ router.post('/', verifyAdmin, async (req, res) => {
   const { 
     title, author, price, category, description, coverImage, stock, featured, language,
     publisher, pages, publishYear, isbn, availabilityStatus,
-    images, tamilTitle, englishTitle, sinhalaTitle, discount, bestSeller, newArrival, status
+    images, tamilTitle, englishTitle, sinhalaTitle, discount, discountPercent, isOffer, bestSeller, newArrival, status
   } = req.body;
   const isMock = process.env.USE_MOCK_DB === 'true';
 
   if (!title || !author || !price || !category || !description) {
     return res.status(400).json({ message: 'Please provide all required fields.' });
   }
+
+  const numPrice = Number(price);
+  const numDiscount = Number(discount || 0);
+  let numDiscountPercent = Number(discountPercent || 0);
+  if (!numDiscountPercent && numPrice > 0 && numDiscount > 0) {
+    numDiscountPercent = Math.round((numDiscount / numPrice) * 100);
+  }
+  const boolIsOffer = isOffer === true || isOffer === 'true' || numDiscount > 0 || numDiscountPercent > 0 || (category && category.toLowerCase() === 'offers');
 
   try {
     if (isMock) {
@@ -645,7 +669,7 @@ router.post('/', verifyAdmin, async (req, res) => {
         _id: 'book_' + Date.now(),
         title,
         author,
-        price: Number(price),
+        price: numPrice,
         category,
         description,
         coverImage: coverImage || 'https://images.unsplash.com/photo-1543002588-bfa74002ed7e?auto=format&fit=crop&q=80&w=600',
@@ -662,7 +686,9 @@ router.post('/', verifyAdmin, async (req, res) => {
         tamilTitle: tamilTitle || '',
         englishTitle: englishTitle || '',
         sinhalaTitle: sinhalaTitle || '',
-        discount: Number(discount || 0),
+        discount: numDiscount,
+        discountPercent: numDiscountPercent,
+        isOffer: boolIsOffer,
         bestSeller: bestSeller === true || bestSeller === 'true',
         newArrival: newArrival === true || newArrival === 'true',
         status: status || 'active',
@@ -676,7 +702,7 @@ router.post('/', verifyAdmin, async (req, res) => {
       const newBook = new Book({
         title,
         author,
-        price,
+        price: numPrice,
         category,
         description,
         coverImage,
@@ -692,7 +718,9 @@ router.post('/', verifyAdmin, async (req, res) => {
         tamilTitle: tamilTitle || '',
         englishTitle: englishTitle || '',
         sinhalaTitle: sinhalaTitle || '',
-        discount,
+        discount: numDiscount,
+        discountPercent: numDiscountPercent,
+        isOffer: boolIsOffer,
         bestSeller: bestSeller === true || bestSeller === 'true',
         newArrival: newArrival === true || newArrival === 'true',
         status: status || 'active'
@@ -713,10 +741,20 @@ router.put('/:id', verifyAdmin, async (req, res) => {
   const { 
     title, author, price, category, description, coverImage, stock, featured, language,
     publisher, pages, publishYear, isbn, availabilityStatus,
-    images, tamilTitle, englishTitle, sinhalaTitle, discount, bestSeller, newArrival, status
+    images, tamilTitle, englishTitle, sinhalaTitle, discount, discountPercent, isOffer, bestSeller, newArrival, status
   } = req.body;
 
   try {
+    const numPrice = price !== undefined ? Number(price) : undefined;
+    const numDiscount = discount !== undefined ? Number(discount) : undefined;
+    let numDiscountPercent = discountPercent !== undefined ? Number(discountPercent) : undefined;
+    if (numDiscountPercent === undefined && numPrice !== undefined && numDiscount !== undefined && numPrice > 0 && numDiscount > 0) {
+      numDiscountPercent = Math.round((numDiscount / numPrice) * 100);
+    }
+    const boolIsOffer = isOffer !== undefined 
+      ? (isOffer === true || isOffer === 'true') 
+      : (numDiscount !== undefined ? numDiscount > 0 : undefined);
+
     if (isMock) {
       const db = readFallbackData();
       const index = db.books.findIndex(b => b._id === req.params.id);
@@ -729,7 +767,7 @@ router.put('/:id', verifyAdmin, async (req, res) => {
         ...db.books[index],
         title: title || db.books[index].title,
         author: author || db.books[index].author,
-        price: price !== undefined ? Number(price) : db.books[index].price,
+        price: numPrice !== undefined ? numPrice : db.books[index].price,
         category: category || db.books[index].category,
         description: description || db.books[index].description,
         coverImage: coverImage || db.books[index].coverImage,
@@ -745,7 +783,9 @@ router.put('/:id', verifyAdmin, async (req, res) => {
         tamilTitle: tamilTitle !== undefined ? tamilTitle : db.books[index].tamilTitle || '',
         englishTitle: englishTitle !== undefined ? englishTitle : db.books[index].englishTitle || '',
         sinhalaTitle: sinhalaTitle !== undefined ? sinhalaTitle : db.books[index].sinhalaTitle || '',
-        discount: discount !== undefined ? Number(discount) : db.books[index].discount || 0,
+        discount: numDiscount !== undefined ? numDiscount : (db.books[index].discount || 0),
+        discountPercent: numDiscountPercent !== undefined ? numDiscountPercent : (db.books[index].discountPercent || 0),
+        isOffer: boolIsOffer !== undefined ? boolIsOffer : (db.books[index].isOffer || false),
         bestSeller: bestSeller !== undefined ? (bestSeller === true || bestSeller === 'true') : db.books[index].bestSeller || false,
         newArrival: newArrival !== undefined ? (newArrival === true || newArrival === 'true') : db.books[index].newArrival || false,
         status: status || db.books[index].status || 'active'
@@ -755,13 +795,19 @@ router.put('/:id', verifyAdmin, async (req, res) => {
       writeFallbackData(db);
       res.json(addDynamicSlug(updatedBook));
     } else {
+      const updateData = { 
+        title, author, category, description, coverImage, stock, featured, language,
+        publisher, pages, publishYear, isbn, availabilityStatus,
+        images, tamilTitle, englishTitle, sinhalaTitle, bestSeller, newArrival, status
+      };
+      if (numPrice !== undefined) updateData.price = numPrice;
+      if (numDiscount !== undefined) updateData.discount = numDiscount;
+      if (numDiscountPercent !== undefined) updateData.discountPercent = numDiscountPercent;
+      if (boolIsOffer !== undefined) updateData.isOffer = boolIsOffer;
+
       const updatedBook = await Book.findByIdAndUpdate(
         req.params.id,
-        { 
-          title, author, price, category, description, coverImage, stock, featured, language,
-          publisher, pages, publishYear, isbn, availabilityStatus,
-          images, tamilTitle, englishTitle, sinhalaTitle, discount, bestSeller, newArrival, status
-        },
+        updateData,
         { new: true, runValidators: true }
       );
 
