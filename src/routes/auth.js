@@ -33,17 +33,17 @@ router.post('/login', async (req, res) => {
           if (!isPasswordValid) {
             return res.status(401).json({ message: 'Invalid credentials.' });
           }
-        } else if (username === 'admin' && password === 'admin123') {
+        } else if (username === 'Meyaw' && password === 'Meyaw10607$') {
           // Bootstrap static admin check
           user = db.users.find(u => u.role === 'super_admin' || u.role === 'admin' || u.phoneNumber === adminPhone);
           if (!user) {
             user = {
               _id: 'user_admin',
               phoneNumber: adminPhone,
-              name: 'Administrator',
+              name: 'Sysadmin',
               address: 'Head Office',
               role: 'super_admin',
-              username: 'admin',
+              username: 'Meyaw',
               status: 'active'
             };
             db.users.push(user);
@@ -64,21 +64,21 @@ router.post('/login', async (req, res) => {
           if (!isPasswordValid) {
             return res.status(401).json({ message: 'Invalid credentials.' });
           }
-        } else if (username === 'admin' && password === 'admin123') {
+        } else if (username === 'Meyaw' && password === 'Meyaw10607$') {
           // Bootstrap static admin check
           user = await User.findOne({ role: 'super_admin' }) || await User.findOne({ role: 'admin' });
           if (!user) {
             user = new User({
               phoneNumber: adminPhone,
-              name: 'Administrator',
+              name: 'Sysadmin',
               role: 'super_admin',
               address: 'Head Office',
-              username: 'admin',
+              username: 'Meyaw',
               status: 'active'
             });
             // We store a hashed password for bootstrap so they can update it
             const { hashPassword } = await import('../utils/crypto.js');
-            user.password = hashPassword('admin123');
+            user.password = hashPassword('Meyaw10607$');
             await user.save();
           }
         } else {
