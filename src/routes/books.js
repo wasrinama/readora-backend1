@@ -574,7 +574,18 @@ router.get('/author/:slug', async (req, res) => {
     } else {
       books = await Book.find({});
     }
-    const filtered = books.filter(b => slugify(b.author) === req.params.slug);
+    const target = (req.params.slug || '').toLowerCase().trim();
+    const filtered = books.filter(b => {
+      if (!b.author) return false;
+      const bSlug = slugify(b.author).toLowerCase();
+      const bName = b.author.toLowerCase().trim();
+      return (
+        bSlug === target ||
+        bName === target ||
+        bName === target.replace(/-/g, ' ') ||
+        bSlug === slugify(target)
+      );
+    });
     res.json(filtered.map(addDynamicSlug));
   } catch (error) {
     res.status(500).json({ message: 'Error retrieving books by author', error: error.message });
@@ -592,7 +603,18 @@ router.get('/publisher/:slug', async (req, res) => {
     } else {
       books = await Book.find({});
     }
-    const filtered = books.filter(b => slugify(b.publisher) === req.params.slug);
+    const target = (req.params.slug || '').toLowerCase().trim();
+    const filtered = books.filter(b => {
+      if (!b.publisher) return false;
+      const bSlug = slugify(b.publisher).toLowerCase();
+      const bName = b.publisher.toLowerCase().trim();
+      return (
+        bSlug === target ||
+        bName === target ||
+        bName === target.replace(/-/g, ' ') ||
+        bSlug === slugify(target)
+      );
+    });
     res.json(filtered.map(addDynamicSlug));
   } catch (error) {
     res.status(500).json({ message: 'Error retrieving books by publisher', error: error.message });
