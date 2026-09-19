@@ -133,46 +133,22 @@ router.post('/login', async (req, res) => {
       const db = readFallbackData();
       user = db.users.find(u => u.phoneNumber === normalizedPhone);
       
-      if (user && user.status === 'blocked') {
-        return res.status(403).json({ message: 'This account has been blocked.' });
+      if (!user) {
+        return res.status(404).json({ message: 'No account found with this phone number. Please register first.' });
       }
 
-      if (!user) {
-        // Create user
-        user = {
-          _id: 'user_' + Date.now(),
-          phoneNumber: normalizedPhone,
-          name: name ? name.trim() : `Customer (${normalizedPhone.slice(-4)})`,
-          address: '',
-          role: isAdmin(normalizedPhone) ? 'admin' : 'user',
-          status: 'active'
-        };
-        db.users.push(user);
-        writeFallbackData(db);
-      } else if (name) {
-        // Update name if supplied
-        user.name = name.trim();
-        writeFallbackData(db);
+      if (user.status === 'blocked') {
+        return res.status(403).json({ message: 'This account has been blocked.' });
       }
     } else {
       user = await User.findOne({ phoneNumber: normalizedPhone });
 
-      if (user && user.status === 'blocked') {
-        return res.status(403).json({ message: 'This account has been blocked.' });
+      if (!user) {
+        return res.status(404).json({ message: 'No account found with this phone number. Please register first.' });
       }
 
-      if (!user) {
-        const role = isAdmin(normalizedPhone) ? 'admin' : 'user';
-        user = new User({
-          phoneNumber: normalizedPhone,
-          name: name ? name.trim() : `Customer (${normalizedPhone.slice(-4)})`,
-          role,
-          status: 'active'
-        });
-        await user.save();
-      } else if (name) {
-        user.name = name.trim();
-        await user.save();
+      if (user.status === 'blocked') {
+        return res.status(403).json({ message: 'This account has been blocked.' });
       }
     }
 
@@ -192,12 +168,99 @@ router.post('/login', async (req, res) => {
         name: user.name,
         phoneNumber: user.phoneNumber,
         address: user.address || '',
+        email: user.email || '',
         role: user.role
       }
     });
 
   } catch (error) {
     res.status(500).json({ message: 'Login error', error: error.message });
+  }
+});
+
+// @route   POST /api/auth/register
+// @desc    Register a new customer account (Name, Phone, Address mandatory; Email optional)
+router.post('/register', async (req, res) => {
+  const { name, phoneNumber, address, email } = req.body;
+
+  if (!name || !name.trim()) {
+    return res.status(400).json({ message: 'Full name is required.' });
+  }
+
+  if (!phoneNumber || !phoneNumber.trim()) {
+    return res.status(400).json({ message: 'Phone number is required.' });
+  }
+
+  if (!address || !address.trim()) {
+    return res.status(400).json({ message: 'Delivery address is required.' });
+  }
+
+  const normalizedPhone = phoneNumber.trim().replace(/\s+/g, '');
+  const phoneRegex = /^(?:\+94|0)?7[0-9]{8}$/;
+  if (!phoneRegex.test(normalizedPhone)) {
+    return res.status(400).json({ message: 'Please enter a valid Sri Lankan phone number (e.g. 071 234 5678).' });
+  }
+
+  const isMock = process.env.USE_MOCK_DB === 'true';
+
+  try {
+    let user;
+    if (isMock) {
+      const db = readFallbackData();
+      user = db.users.find(u => u.phoneNumber === normalizedPhone);
+      if (user) {
+        return res.status(400).json({ message: 'An account with this phone number already exists. Please sign in.' });
+      }
+
+      user = {
+        _id: 'user_' + Date.now(),
+        phoneNumber: normalizedPhone,
+        name: name.trim(),
+        address: address.trim(),
+        email: email ? email.trim() : '',
+        role: 'user',
+        status: 'active',
+        createdAt: new Date().toISOString()
+      };
+      db.users.push(user);
+      writeFallbackData(db);
+    } else {
+      user = await User.findOne({ phoneNumber: normalizedPhone });
+      if (user) {
+        return res.status(400).json({ message: 'An account with this phone number already exists. Please sign in.' });
+      }
+
+      user = new User({
+        phoneNumber: normalizedPhone,
+        name: name.trim(),
+        address: address.trim(),
+        email: email ? email.trim() : '',
+        role: 'user',
+        status: 'active'
+      });
+      await user.save();
+    }
+
+    const payload = {
+      id: user._id,
+      phoneNumber: user.phoneNumber,
+      role: user.role
+    };
+    const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '30d' });
+
+    res.status(201).json({
+      token,
+      user: {
+        id: user._id,
+        name: user.name,
+        phoneNumber: user.phoneNumber,
+        address: user.address,
+        email: user.email || '',
+        role: user.role
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Registration failed', error: error.message });
   }
 });
 

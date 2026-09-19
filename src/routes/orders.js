@@ -246,4 +246,36 @@ router.put('/:id/verify-payment', verifyAdminOrStaff, async (req, res) => {
   }
 });
 
+// @route   GET /api/orders/customer/:phone
+// @desc    Get order history for a specific customer (Admin/Staff or owner)
+router.get('/customer/:phone', verifyToken, async (req, res) => {
+  const targetPhone = req.params.phone.trim().replace(/\s+/g, '');
+  const userPhone = req.user.phoneNumber;
+  const userRole = req.user.role;
+
+  // Verify permission: admin, staff, super_admin, or the customer themselves
+  const isAuthorized = ['admin', 'super_admin', 'staff'].includes(userRole) || userPhone === targetPhone;
+  if (!isAuthorized) {
+    return res.status(403).json({ message: 'Unauthorized to view these orders.' });
+  }
+
+  const isMock = process.env.USE_MOCK_DB === 'true';
+
+  try {
+    if (isMock) {
+      const db = readFallbackData();
+      const customerOrders = (db.orders || [])
+        .filter(o => o.customerPhone && o.customerPhone.replace(/\s+/g, '') === targetPhone)
+        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      res.json(customerOrders);
+    } else {
+      const customerOrders = await Order.find({ customerPhone: targetPhone }).sort({ createdAt: -1 });
+      res.json(customerOrders);
+    }
+  } catch (error) {
+    res.status(500).json({ message: 'Error retrieving customer orders', error: error.message });
+  }
+});
+
 export default router;
+
