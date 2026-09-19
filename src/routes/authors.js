@@ -24,6 +24,49 @@ router.get('/', async (req, res) => {
   }
 });
 
+// @route   GET /api/authors/:identifier
+// @desc    Get author by ID, slug, or name
+router.get('/:identifier', async (req, res) => {
+  const { identifier } = req.params;
+  const isMock = process.env.USE_MOCK_DB === 'true';
+
+  try {
+    let author = null;
+    if (isMock) {
+      const db = readFallbackData();
+      const authors = db.authors || [];
+      author = authors.find(a => 
+        a._id === identifier || 
+        a.slug === identifier || 
+        slugify(a.name) === identifier ||
+        a.name.toLowerCase() === identifier.toLowerCase()
+      );
+    } else {
+      if (identifier.match(/^[0-9a-fA-F]{24}$/)) {
+        author = await Author.findById(identifier);
+      }
+      if (!author) {
+        author = await Author.findOne({ slug: identifier });
+      }
+      if (!author) {
+        const allAuthors = await Author.find({});
+        author = allAuthors.find(a => 
+          slugify(a.name) === identifier || 
+          a.name.toLowerCase() === identifier.toLowerCase()
+        );
+      }
+    }
+
+    if (!author) {
+      return res.status(404).json({ message: 'Author not found' });
+    }
+
+    res.json(author);
+  } catch (error) {
+    res.status(500).json({ message: 'Error retrieving author', error: error.message });
+  }
+});
+
 // @route   POST /api/authors
 // @desc    Create an author (Admin/Staff only)
 router.post('/', verifyAdminOrStaff, async (req, res) => {

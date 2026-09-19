@@ -284,7 +284,7 @@ function scoreBookRelevance(book, search) {
 // @route   GET /api/books
 // @desc    Get all books with optional search and category filters
 router.get('/', async (req, res) => {
-  const { search, category, featured, language, includeArchived, offers } = req.query;
+  const { search, category, featured, language, includeArchived, offers, author, publisher } = req.query;
   const isMock = process.env.USE_MOCK_DB === 'true';
 
   try {
@@ -317,6 +317,16 @@ router.get('/', async (req, res) => {
         books = books.filter(b => b.language && b.language.toLowerCase() === language.toLowerCase());
       }
 
+      // Filter by author
+      if (author && author !== 'All') {
+        books = books.filter(b => b.author && (slugify(b.author) === slugify(author) || b.author.toLowerCase() === author.toLowerCase()));
+      }
+
+      // Filter by publisher
+      if (publisher && publisher !== 'All') {
+        books = books.filter(b => b.publisher && (slugify(b.publisher) === slugify(publisher) || b.publisher.toLowerCase() === publisher.toLowerCase()));
+      }
+
       // Filter by featured
       if (featured === 'true') {
         books = books.filter(b => b.featured === true);
@@ -345,6 +355,16 @@ router.get('/', async (req, res) => {
       if (language && language !== 'All') {
         const escapedLanguage = language.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         filter.language = { $regex: new RegExp(`^${escapedLanguage}$`, 'i') };
+      }
+
+      if (author && author !== 'All') {
+        const escapedAuthor = author.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        filter.author = { $regex: new RegExp(`^${escapedAuthor}$`, 'i') };
+      }
+
+      if (publisher && publisher !== 'All') {
+        const escapedPublisher = publisher.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        filter.publisher = { $regex: new RegExp(`^${escapedPublisher}$`, 'i') };
       }
 
       if (featured === 'true') {

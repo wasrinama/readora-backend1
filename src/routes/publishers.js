@@ -24,6 +24,49 @@ router.get('/', async (req, res) => {
   }
 });
 
+// @route   GET /api/publishers/:identifier
+// @desc    Get publisher by ID, slug, or name
+router.get('/:identifier', async (req, res) => {
+  const { identifier } = req.params;
+  const isMock = process.env.USE_MOCK_DB === 'true';
+
+  try {
+    let publisher = null;
+    if (isMock) {
+      const db = readFallbackData();
+      const publishers = db.publishers || [];
+      publisher = publishers.find(p => 
+        p._id === identifier || 
+        p.slug === identifier || 
+        slugify(p.name) === identifier ||
+        p.name.toLowerCase() === identifier.toLowerCase()
+      );
+    } else {
+      if (identifier.match(/^[0-9a-fA-F]{24}$/)) {
+        publisher = await Publisher.findById(identifier);
+      }
+      if (!publisher) {
+        publisher = await Publisher.findOne({ slug: identifier });
+      }
+      if (!publisher) {
+        const allPublishers = await Publisher.find({});
+        publisher = allPublishers.find(p => 
+          slugify(p.name) === identifier || 
+          p.name.toLowerCase() === identifier.toLowerCase()
+        );
+      }
+    }
+
+    if (!publisher) {
+      return res.status(404).json({ message: 'Publisher not found' });
+    }
+
+    res.json(publisher);
+  } catch (error) {
+    res.status(500).json({ message: 'Error retrieving publisher', error: error.message });
+  }
+});
+
 // @route   POST /api/publishers
 // @desc    Create a publisher (Admin/Staff only)
 router.post('/', verifyAdminOrStaff, async (req, res) => {
