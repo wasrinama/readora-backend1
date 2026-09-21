@@ -13,6 +13,7 @@ import authorRoutes from './routes/authors.js';
 import publisherRoutes from './routes/publishers.js';
 import bannerRoutes from './routes/banners.js';
 import reportRoutes from './routes/reports.js';
+import aiRoutes from './routes/ai.js';
 
 // Load environment variables
 dotenv.config();
@@ -53,6 +54,7 @@ app.use('/api/authors', authorRoutes);
 app.use('/api/publishers', publisherRoutes);
 app.use('/api/banners', bannerRoutes);
 app.use('/api/reports', reportRoutes);
+app.use('/api/ai', aiRoutes);
 
 // Database connection initialization
 await connectDB();
