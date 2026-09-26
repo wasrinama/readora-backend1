@@ -3,12 +3,20 @@ import { readFallbackData, writeFallbackData } from '../config/db.js';
 import Publisher from '../models/Publisher.js';
 import { verifyAdminOrStaff } from '../middleware/auth.js';
 import { slugify } from '../utils/slugify.js';
+import { memoryCache } from '../utils/cache.js';
 
 const router = express.Router();
 
 // @route   GET /api/publishers
-// @desc    Get all publishers
+// @desc    Get all publishers (Cached in memory)
 router.get('/', async (req, res) => {
+  const cacheKey = 'publishers:all';
+  const cached = memoryCache.get(cacheKey);
+  if (cached) {
+    res.set('Cache-Control', 'public, max-age=300');
+    return res.json(cached);
+  }
+
   const isMock = process.env.USE_MOCK_DB === 'true';
   try {
     let publishers = [];
@@ -16,8 +24,10 @@ router.get('/', async (req, res) => {
       const db = readFallbackData();
       publishers = db.publishers || [];
     } else {
-      publishers = await Publisher.find().sort({ name: 1 });
+      publishers = await Publisher.find().sort({ name: 1 }).lean();
     }
+    memoryCache.set(cacheKey, publishers, 600);
+    res.set('Cache-Control', 'public, max-age=300');
     res.json(publishers);
   } catch (error) {
     res.status(500).json({ message: 'Error retrieving publishers', error: error.message });
@@ -109,6 +119,7 @@ router.post('/', verifyAdminOrStaff, async (req, res) => {
         slug
       });
       await newPublisher.save();
+      memoryCache.invalidatePrefix('publishers:');
       res.status(201).json(newPublisher);
     }
   } catch (error) {
@@ -137,6 +148,7 @@ router.put('/:id', verifyAdminOrStaff, async (req, res) => {
         updatedAt: new Date().toISOString()
       };
       writeFallbackData(db);
+      memoryCache.invalidatePrefix('publishers:');
       res.json(db.publishers[index]);
     } else {
       const updateData = {};
@@ -153,6 +165,7 @@ router.put('/:id', verifyAdminOrStaff, async (req, res) => {
         { new: true }
       );
       if (!updated) return res.status(404).json({ message: 'Publisher not found.' });
+      memoryCache.invalidatePrefix('publishers:');
       res.json(updated);
     }
   } catch (error) {
@@ -172,10 +185,12 @@ router.delete('/:id', verifyAdminOrStaff, async (req, res) => {
 
       db.publishers.splice(index, 1);
       writeFallbackData(db);
+      memoryCache.invalidatePrefix('publishers:');
       res.json({ message: 'Publisher deleted successfully.' });
     } else {
       const deleted = await Publisher.findByIdAndDelete(req.params.id);
       if (!deleted) return res.status(404).json({ message: 'Publisher not found.' });
+      memoryCache.invalidatePrefix('publishers:');
       res.json({ message: 'Publisher deleted successfully.' });
     }
   } catch (error) {

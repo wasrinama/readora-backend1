@@ -19,7 +19,8 @@ const bannerSchema = new mongoose.Schema({
   },
   active: {
     type: Boolean,
-    default: true
+    default: true,
+    index: true
   },
   order: {
     type: Number,

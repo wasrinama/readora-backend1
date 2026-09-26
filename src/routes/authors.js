@@ -3,12 +3,20 @@ import { readFallbackData, writeFallbackData } from '../config/db.js';
 import Author from '../models/Author.js';
 import { verifyAdminOrStaff } from '../middleware/auth.js';
 import { slugify } from '../utils/slugify.js';
+import { memoryCache } from '../utils/cache.js';
 
 const router = express.Router();
 
 // @route   GET /api/authors
-// @desc    Get all authors
+// @desc    Get all authors (Cached in memory)
 router.get('/', async (req, res) => {
+  const cacheKey = 'authors:all';
+  const cached = memoryCache.get(cacheKey);
+  if (cached) {
+    res.set('Cache-Control', 'public, max-age=300');
+    return res.json(cached);
+  }
+
   const isMock = process.env.USE_MOCK_DB === 'true';
   try {
     let authors = [];
@@ -16,8 +24,10 @@ router.get('/', async (req, res) => {
       const db = readFallbackData();
       authors = db.authors || [];
     } else {
-      authors = await Author.find().sort({ name: 1 });
+      authors = await Author.find().sort({ name: 1 }).lean();
     }
+    memoryCache.set(cacheKey, authors, 600);
+    res.set('Cache-Control', 'public, max-age=300');
     res.json(authors);
   } catch (error) {
     res.status(500).json({ message: 'Error retrieving authors', error: error.message });
@@ -109,6 +119,7 @@ router.post('/', verifyAdminOrStaff, async (req, res) => {
         slug
       });
       await newAuthor.save();
+      memoryCache.invalidatePrefix('authors:');
       res.status(201).json(newAuthor);
     }
   } catch (error) {
@@ -137,6 +148,7 @@ router.put('/:id', verifyAdminOrStaff, async (req, res) => {
         updatedAt: new Date().toISOString()
       };
       writeFallbackData(db);
+      memoryCache.invalidatePrefix('authors:');
       res.json(db.authors[index]);
     } else {
       const updateData = {};
@@ -153,6 +165,7 @@ router.put('/:id', verifyAdminOrStaff, async (req, res) => {
         { new: true }
       );
       if (!updated) return res.status(404).json({ message: 'Author not found.' });
+      memoryCache.invalidatePrefix('authors:');
       res.json(updated);
     }
   } catch (error) {
@@ -172,10 +185,12 @@ router.delete('/:id', verifyAdminOrStaff, async (req, res) => {
 
       db.authors.splice(index, 1);
       writeFallbackData(db);
+      memoryCache.invalidatePrefix('authors:');
       res.json({ message: 'Author deleted successfully.' });
     } else {
       const deleted = await Author.findByIdAndDelete(req.params.id);
       if (!deleted) return res.status(404).json({ message: 'Author not found.' });
+      memoryCache.invalidatePrefix('authors:');
       res.json({ message: 'Author deleted successfully.' });
     }
   } catch (error) {

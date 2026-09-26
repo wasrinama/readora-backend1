@@ -8,14 +8,18 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "build": "echo 'No build step required'",
-    "seed": "node src/seed.js"
+    "seed": "node src/seed.js",
+    "migrate-images": "node src/migrate-images-to-cloudinary.js"
   },
   "dependencies": {
+    "cloudinary": "^2.11.0",
+    "compression": "^1.8.2",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "jsonwebtoken": "^9.0.2",
-    "mongoose": "^8.4.1"
+    "mongoose": "^8.4.1",
+    "multer": "^2.4.0"
   },
   "engines": {
     "node": ">=18.0.0"

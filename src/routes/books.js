@@ -1,9 +1,10 @@
-import express from 'express';
-import { readFallbackData, writeFallbackData } from '../config/db.js';
-import Book from '../models/Book.js';
-import StockLog from '../models/StockLog.js';
-import { verifyAdmin, verifyAdminOrStaff } from '../middleware/auth.js';
-import { slugify } from '../utils/slugify.js';
+import express from "express";
+import { readFallbackData, writeFallbackData } from "../config/db.js";
+import Book from "../models/Book.js";
+import StockLog from "../models/StockLog.js";
+import { verifyAdmin, verifyAdminOrStaff } from "../middleware/auth.js";
+import { slugify } from "../utils/slugify.js";
+import { memoryCache } from "../utils/cache.js";
 
 const router = express.Router();
 
@@ -16,68 +17,122 @@ const addDynamicSlug = (book) => {
   return bookObj;
 };
 
-
 // Transliteration maps for Thanglish/Tamil/Sinhala phonetic conversion
 const independentVowels = {
   // Tamil
-  'அ': 'a', 'ஆ': 'aa', 'இ': 'i', 'ஈ': 'ee', 'உ': 'u', 'ஊ': 'oo',
-  'எ': 'e', 'ஏ': 'ae', 'ஐ': 'ai', 'ஒ': 'o', 'ஓ': 'oo', 'ஔ': 'au',
-  'ஃ': 'h',
+  அ: "a",
+  ஆ: "aa",
+  இ: "i",
+  ஈ: "ee",
+  உ: "u",
+  ஊ: "oo",
+  எ: "e",
+  ஏ: "ae",
+  ஐ: "ai",
+  ஒ: "o",
+  ஓ: "oo",
+  ஔ: "au",
+  ஃ: "h",
   // Sinhala
-  'අ': 'a', 'ආ': 'aa', 'ඇ': 'ae', 'ඈ': 'aae', 'ඉ': 'i', 'ඊ': 'ee',
-  'උ': 'u', 'ඌ': 'oo', 'එ': 'e', 'ඒ': 'ae', 'ඔ': 'o', 'ඕ': 'oo'
+  අ: "a",
+  ආ: "aa",
+  ඇ: "ae",
+  ඈ: "aae",
+  ඉ: "i",
+  ඊ: "ee",
+  උ: "u",
+  ඌ: "oo",
+  එ: "e",
+  ඒ: "ae",
+  ඔ: "o",
+  ඕ: "oo",
 };
 
 const consonants = {
   // Tamil
-  'க': 'k', 'ங': 'ng', 'ச': 's', 'ஞ': 'ny', 'ட': 't', 'ண': 'n',
-  'த': 'th', 'ந': 'n', 'ப': 'p', 'ம': 'm', 'ய': 'y', 'ர': 'r',
-  'ல': 'l', 'வ': 'v', 'ழ': 'zh', 'ள': 'l', 'ற': 'r', 'ன': 'n',
-  'ஜ': 'j', 'ஷ': 'sh', 'ஸ': 's', 'ஹ': 'h',
+  க: "k",
+  ங: "ng",
+  ச: "s",
+  ஞ: "ny",
+  ட: "t",
+  ண: "n",
+  த: "th",
+  ந: "n",
+  ப: "p",
+  ம: "m",
+  ய: "y",
+  ர: "r",
+  ல: "l",
+  வ: "v",
+  ழ: "zh",
+  ள: "l",
+  ற: "r",
+  ன: "n",
+  ஜ: "j",
+  ஷ: "sh",
+  ஸ: "s",
+  ஹ: "h",
   // Sinhala
-  'ක': 'k', 'ග': 'g', 'ච': 'ch', 'ජ': 'j', 'ට': 't', 'ඩ': 'd',
-  'ණ': 'n', 'ත': 'th', 'ද': 'd', 'න': 'n', 'ප': 'p', 'බ': 'b',
-  'ම': 'm', 'ය': 'y', 'ර': 'r', 'ල': 'l', 'ව': 'v', 'ස': 's',
-  'ஹ': 'h', 'හ': 'h', 'ළ': 'l'
+  ක: "k",
+  ග: "g",
+  ච: "ch",
+  ජ: "j",
+  ට: "t",
+  ඩ: "d",
+  ණ: "n",
+  ත: "th",
+  ද: "d",
+  න: "n",
+  ප: "p",
+  බ: "b",
+  ම: "m",
+  ය: "y",
+  ර: "r",
+  ල: "l",
+  ව: "v",
+  ස: "s",
+  ஹ: "h",
+  හ: "h",
+  ළ: "l",
 };
 
 const vowelDiacritics = {
   // Tamil diacritics
-  '\u0bbe': 'a', // ா (aa)
-  '\u0bbf': 'i', // ி (i)
-  '\u0bc0': 'ee', // ீ (ee)
-  '\u0bc1': 'u', // ு (u)
-  '\u0bc2': 'oo', // ூ (oo)
-  '\u0bc6': 'e', // ெ (e)
-  '\u0bc7': 'ae', // ே (ae)
-  '\u0bc8': 'ai', // ை (ai)
-  '\u0bca': 'o', // ொ (o)
-  '\u0bcb': 'oo', // ோ (oo)
-  '\u0bcc': 'au', // ௌ (au)
-  '\u0bcd': '',   // ் (pulli)
+  "\u0bbe": "a", // ா (aa)
+  "\u0bbf": "i", // ி (i)
+  "\u0bc0": "ee", // ீ (ee)
+  "\u0bc1": "u", // ு (u)
+  "\u0bc2": "oo", // ூ (oo)
+  "\u0bc6": "e", // ெ (e)
+  "\u0bc7": "ae", // ே (ae)
+  "\u0bc8": "ai", // ை (ai)
+  "\u0bca": "o", // ொ (o)
+  "\u0bcb": "oo", // ோ (oo)
+  "\u0bcc": "au", // ௌ (au)
+  "\u0bcd": "", // ் (pulli)
   // Sinhala diacritics
-  '\u0dcf': 'a',   // ා
-  '\u0dd0': 'ae',  // ැ
-  '\u0dd1': 'aae', // ෑ
-  '\u0dd2': 'i',   // ි
-  '\u0dd3': 'ee',  // ී
-  '\u0dd4': 'u',   // ු
-  '\u0dd6': 'oo',  // ූ
-  '\u0dd9': 'e',   // ෙ
-  '\u0dda': 'ae',  // ේ
-  '\u0ddc': 'o',   // ො
-  '\u0ddd': 'oo',  // ෝ
-  '\u0dca': ''     // ් (hal kireema)
+  "\u0dcf": "a", // ා
+  "\u0dd0": "ae", // ැ
+  "\u0dd1": "aae", // ෑ
+  "\u0dd2": "i", // ි
+  "\u0dd3": "ee", // ී
+  "\u0dd4": "u", // ු
+  "\u0dd6": "oo", // ූ
+  "\u0dd9": "e", // ෙ
+  "\u0dda": "ae", // ේ
+  "\u0ddc": "o", // ො
+  "\u0ddd": "oo", // ෝ
+  "\u0dca": "", // ් (hal kireema)
 };
 
 function transliterateTamilToLatin(text) {
-  if (!text) return '';
-  let result = '';
+  if (!text) return "";
+  let result = "";
   const chars = Array.from(text);
-  
+
   for (let i = 0; i < chars.length; i++) {
     const char = chars[i];
-    
+
     if (independentVowels[char] !== undefined) {
       result += independentVowels[char];
     } else if (consonants[char] !== undefined) {
@@ -86,7 +141,7 @@ function transliterateTamilToLatin(text) {
         result += consonants[char] + vowelDiacritics[nextChar];
         i++; // Skip the diacritic character
       } else {
-        result += consonants[char] + 'a';
+        result += consonants[char] + "a";
       }
     } else {
       result += char;
@@ -96,33 +151,35 @@ function transliterateTamilToLatin(text) {
 }
 
 function normalizePhonetic(str) {
-  if (!str) return '';
-  
+  if (!str) return "";
+
   // Transliterate Tamil to Latin
   let res = transliterateTamilToLatin(str).toLowerCase();
-  
+
   // Normalize vowels
-  res = res.replace(/aa/g, 'a')
-           .replace(/ee/g, 'i')
-           .replace(/oo/g, 'u')
-           .replace(/ae/g, 'e')
-           .replace(/ow/g, 'au')
-           .replace(/y/g, 'i');
-           
+  res = res
+    .replace(/aa/g, "a")
+    .replace(/ee/g, "i")
+    .replace(/oo/g, "u")
+    .replace(/ae/g, "e")
+    .replace(/ow/g, "au")
+    .replace(/y/g, "i");
+
   // Normalize consonants
-  res = res.replace(/ch/g, 's')
-           .replace(/sh/g, 's')
-           .replace(/c/g, 's')
-           .replace(/z/g, 's')
-           .replace(/zh/g, 'l')
-           .replace(/th/g, 't')
-           .replace(/d/g, 't')
-           .replace(/g/g, 'k')
-           .replace(/b/g, 'p')
-           .replace(/w/g, 'v');
-           
+  res = res
+    .replace(/ch/g, "s")
+    .replace(/sh/g, "s")
+    .replace(/c/g, "s")
+    .replace(/z/g, "s")
+    .replace(/zh/g, "l")
+    .replace(/th/g, "t")
+    .replace(/d/g, "t")
+    .replace(/g/g, "k")
+    .replace(/b/g, "p")
+    .replace(/w/g, "v");
+
   // Remove duplicate consecutive characters
-  let clean = '';
+  let clean = "";
   for (let i = 0; i < res.length; i++) {
     if (res[i] !== res[i - 1]) {
       clean += res[i];
@@ -146,8 +203,8 @@ function getLevenshteinDistance(a, b) {
       } else {
         matrix[i][j] = Math.min(
           matrix[i - 1][j - 1] + 1, // substitution
-          matrix[i][j - 1] + 1,     // insertion
-          matrix[i - 1][j] + 1      // deletion
+          matrix[i][j - 1] + 1, // insertion
+          matrix[i - 1][j] + 1, // deletion
         );
       }
     }
@@ -159,33 +216,33 @@ function getLevenshteinDistance(a, b) {
 function scoreBookRelevance(book, search) {
   const query = search.trim();
   const cleanQuery = query.toLowerCase();
-  
+
   // Basic attributes
-  const cleanTitle = (book.title || '').trim().toLowerCase();
-  const cleanAuthor = (book.author || '').trim().toLowerCase();
-  const cleanDesc = (book.description || '').trim().toLowerCase();
-  const cleanCategory = (book.category || '').trim().toLowerCase();
-  const cleanLanguage = (book.language || '').trim().toLowerCase();
-  const cleanPublisher = (book.publisher || '').trim().toLowerCase();
-  const cleanIsbn = (book.isbn || '').replace(/[\s-]+/g, '').toLowerCase();
-  const rawQueryIsbn = cleanQuery.replace(/[\s-]+/g, '');
+  const cleanTitle = (book.title || "").trim().toLowerCase();
+  const cleanAuthor = (book.author || "").trim().toLowerCase();
+  const cleanDesc = (book.description || "").trim().toLowerCase();
+  const cleanCategory = (book.category || "").trim().toLowerCase();
+  const cleanLanguage = (book.language || "").trim().toLowerCase();
+  const cleanPublisher = (book.publisher || "").trim().toLowerCase();
+  const cleanIsbn = (book.isbn || "").replace(/[\s-]+/g, "").toLowerCase();
+  const rawQueryIsbn = cleanQuery.replace(/[\s-]+/g, "");
 
   const normQuery = normalizePhonetic(query);
-  const flatQuery = normQuery.replace(/\s+/g, '');
-  
-  const normTitle = normalizePhonetic(book.title || '');
-  const flatTitle = normTitle.replace(/\s+/g, '');
-  
-  const normAuthor = normalizePhonetic(book.author || '');
-  const flatAuthor = normAuthor.replace(/\s+/g, '');
-  
-  const normDesc = normalizePhonetic(book.description || '');
-  
-  const normPub = book.publisher ? normalizePhonetic(book.publisher) : '';
-  const flatPub = normPub.replace(/\s+/g, '');
+  const flatQuery = normQuery.replace(/\s+/g, "");
 
-  const normCat = book.category ? normalizePhonetic(book.category) : '';
-  const flatCat = normCat.replace(/\s+/g, '');
+  const normTitle = normalizePhonetic(book.title || "");
+  const flatTitle = normTitle.replace(/\s+/g, "");
+
+  const normAuthor = normalizePhonetic(book.author || "");
+  const flatAuthor = normAuthor.replace(/\s+/g, "");
+
+  const normDesc = normalizePhonetic(book.description || "");
+
+  const normPub = book.publisher ? normalizePhonetic(book.publisher) : "";
+  const flatPub = normPub.replace(/\s+/g, "");
+
+  const normCat = book.category ? normalizePhonetic(book.category) : "";
+  const flatCat = normCat.replace(/\s+/g, "");
 
   let score = 0;
 
@@ -199,7 +256,7 @@ function scoreBookRelevance(book, search) {
   } else if (cleanQuery === cleanPublisher) {
     score += 700;
   }
-  
+
   // 2. Phonetic exact match (spaces ignored, e.g. "ponniyinselvan" vs "ponniyin selvan")
   else if (flatQuery === flatTitle) {
     score += 700;
@@ -208,7 +265,7 @@ function scoreBookRelevance(book, search) {
   } else if (flatQuery === flatPub) {
     score += 600;
   }
-  
+
   // 3. Substring match on original text
   else if (cleanTitle.includes(cleanQuery)) {
     score += 500;
@@ -227,7 +284,7 @@ function scoreBookRelevance(book, search) {
   } else if (cleanLanguage.includes(cleanQuery)) {
     score += 200;
   }
-  
+
   // 4. Substring match on phonetic text
   else if (normTitle.includes(normQuery)) {
     score += 300;
@@ -238,7 +295,7 @@ function scoreBookRelevance(book, search) {
   } else if (normCat && normCat.includes(normQuery)) {
     score += 200;
   }
-  
+
   // 5. Fuzzy Levenshtein match
   else {
     const titleDist = getLevenshteinDistance(flatQuery, flatTitle);
@@ -246,10 +303,13 @@ function scoreBookRelevance(book, search) {
     if (titleDist <= 2 || (maxLenTitle > 4 && titleDist / maxLenTitle <= 0.3)) {
       score += Math.max(0, 200 - titleDist * 30);
     }
-    
+
     const authorDist = getLevenshteinDistance(flatQuery, flatAuthor);
     const maxLenAuthor = Math.max(flatQuery.length, flatAuthor.length);
-    if (authorDist <= 2 || (maxLenAuthor > 4 && authorDist / maxLenAuthor <= 0.3)) {
+    if (
+      authorDist <= 2 ||
+      (maxLenAuthor > 4 && authorDist / maxLenAuthor <= 0.3)
+    ) {
       score += Math.max(0, 150 - authorDist * 30);
     }
   }
@@ -262,14 +322,24 @@ function scoreBookRelevance(book, search) {
   let wordMatches = 0;
   for (const qw of queryWords) {
     if (qw.length < 2) continue; // Skip single letter search words
-    
-    const matchesTitle = titleWords.some(tw => tw.includes(qw) || getLevenshteinDistance(qw, tw) <= 1);
-    const matchesAuthor = authorWords.some(aw => aw.includes(qw) || getLevenshteinDistance(qw, aw) <= 1);
+
+    const matchesTitle = titleWords.some(
+      (tw) => tw.includes(qw) || getLevenshteinDistance(qw, tw) <= 1,
+    );
+    const matchesAuthor = authorWords.some(
+      (aw) => aw.includes(qw) || getLevenshteinDistance(qw, aw) <= 1,
+    );
     const matchesDesc = normDesc.includes(qw);
     const matchesPub = normPub && normPub.includes(qw);
     const matchesCat = normCat && normCat.includes(qw);
-    
-    if (matchesTitle || matchesAuthor || matchesDesc || matchesPub || matchesCat) {
+
+    if (
+      matchesTitle ||
+      matchesAuthor ||
+      matchesDesc ||
+      matchesPub ||
+      matchesCat
+    ) {
       wordMatches++;
     }
   }
@@ -283,9 +353,25 @@ function scoreBookRelevance(book, search) {
 
 // @route   GET /api/books
 // @desc    Get all books with optional search and category filters
-router.get('/', async (req, res) => {
-  const { search, category, featured, language, includeArchived, offers, author, publisher } = req.query;
-  const isMock = process.env.USE_MOCK_DB === 'true';
+router.get("/", async (req, res) => {
+  const cacheKey = `books:${JSON.stringify(req.query)}`;
+  const cached = memoryCache.get(cacheKey);
+  if (cached) {
+    res.set("Cache-Control", "public, max-age=120");
+    return res.json(cached);
+  }
+
+  const {
+    search,
+    category,
+    featured,
+    language,
+    includeArchived,
+    offers,
+    author,
+    publisher,
+  } = req.query;
+  const isMock = process.env.USE_MOCK_DB === "true";
 
   try {
     let books = [];
@@ -295,112 +381,210 @@ router.get('/', async (req, res) => {
       books = db.books || [];
 
       // Exclude archived books by default
-      if (includeArchived !== 'true') {
-        books = books.filter(b => b.status !== 'archived');
+      if (includeArchived !== "true") {
+        books = books.filter((b) => b.status !== "archived");
       }
 
       // Filter by category or offers
-      const isOffersFilter = offers === 'true' || (category && (category.toLowerCase() === 'offers' || category.toLowerCase() === 'special offers'));
+      const isOffersFilter =
+        offers === "true" ||
+        (category &&
+          (category.toLowerCase() === "offers" ||
+            category.toLowerCase() === "special offers"));
       if (isOffersFilter) {
-        books = books.filter(b => 
-          (b.category && (b.category.toLowerCase() === 'offers' || b.category.toLowerCase() === 'special offers')) ||
-          (b.discount && Number(b.discount) > 0) ||
-          (b.discountPercent && Number(b.discountPercent) > 0) ||
-          b.isOffer === true
+        books = books.filter(
+          (b) =>
+            (b.category &&
+              (b.category.toLowerCase() === "offers" ||
+                b.category.toLowerCase() === "special offers")) ||
+            (b.discount && Number(b.discount) > 0) ||
+            (b.discountPercent && Number(b.discountPercent) > 0) ||
+            b.isOffer === true,
         );
-      } else if (category && category !== 'All') {
-        books = books.filter(b => b.category && b.category.toLowerCase() === category.toLowerCase());
+      } else if (category && category !== "All") {
+        books = books.filter(
+          (b) =>
+            b.category && b.category.toLowerCase() === category.toLowerCase(),
+        );
       }
 
       // Filter by language
-      if (language && language !== 'All') {
-        books = books.filter(b => b.language && b.language.toLowerCase() === language.toLowerCase());
+      if (language && language !== "All") {
+        books = books.filter(
+          (b) =>
+            b.language && b.language.toLowerCase() === language.toLowerCase(),
+        );
       }
 
       // Filter by author
-      if (author && author !== 'All') {
-        books = books.filter(b => b.author && (slugify(b.author) === slugify(author) || b.author.toLowerCase() === author.toLowerCase()));
+      if (author && author !== "All") {
+        books = books.filter(
+          (b) =>
+            b.author &&
+            (slugify(b.author) === slugify(author) ||
+              b.author.toLowerCase() === author.toLowerCase()),
+        );
       }
 
       // Filter by publisher
-      if (publisher && publisher !== 'All') {
-        books = books.filter(b => b.publisher && (slugify(b.publisher) === slugify(publisher) || b.publisher.toLowerCase() === publisher.toLowerCase()));
+      if (publisher && publisher !== "All") {
+        books = books.filter(
+          (b) =>
+            b.publisher &&
+            (slugify(b.publisher) === slugify(publisher) ||
+              b.publisher.toLowerCase() === publisher.toLowerCase()),
+        );
       }
 
       // Filter by featured
-      if (featured === 'true') {
-        books = books.filter(b => b.featured === true);
+      if (featured === "true") {
+        books = books.filter((b) => b.featured === true);
       }
     } else {
       let filter = {};
 
       // Exclude archived books by default
-      if (includeArchived !== 'true') {
-        filter.status = { $ne: 'archived' };
+      if (includeArchived !== "true") {
+        filter.status = { $ne: "archived" };
       }
 
-      const isOffersFilter = offers === 'true' || (category && (category.toLowerCase() === 'offers' || category.toLowerCase() === 'special offers'));
+      const isOffersFilter =
+        offers === "true" ||
+        (category &&
+          (category.toLowerCase() === "offers" ||
+            category.toLowerCase() === "special offers"));
       if (isOffersFilter) {
         filter.$or = [
           { category: { $regex: /^offers$|^special offers$/i } },
           { discount: { $gt: 0 } },
           { discountPercent: { $gt: 0 } },
-          { isOffer: true }
+          { isOffer: true },
         ];
-      } else if (category && category !== 'All') {
-        const escapedCategory = category.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        filter.category = { $regex: new RegExp(`^${escapedCategory}$`, 'i') };
+      } else if (category && category !== "All") {
+        const escapedCategory = category.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        filter.category = { $regex: new RegExp(`^${escapedCategory}$`, "i") };
       }
 
-      if (language && language !== 'All') {
-        const escapedLanguage = language.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        filter.language = { $regex: new RegExp(`^${escapedLanguage}$`, 'i') };
+      if (language && language !== "All") {
+        const escapedLanguage = language.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        filter.language = { $regex: new RegExp(`^${escapedLanguage}$`, "i") };
       }
 
-      if (author && author !== 'All') {
-        const escapedAuthor = author.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        filter.author = { $regex: new RegExp(`^${escapedAuthor}$`, 'i') };
+      if (author && author !== "All") {
+        const escapedAuthor = author.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        filter.author = { $regex: new RegExp(`^${escapedAuthor}$`, "i") };
       }
 
-      if (publisher && publisher !== 'All') {
-        const escapedPublisher = publisher.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        filter.publisher = { $regex: new RegExp(`^${escapedPublisher}$`, 'i') };
+      if (publisher && publisher !== "All") {
+        const escapedPublisher = publisher.replace(
+          /[.*+?^${}()|[\]\\]/g,
+          "\\$&",
+        );
+        filter.publisher = { $regex: new RegExp(`^${escapedPublisher}$`, "i") };
       }
 
-      if (featured === 'true') {
+      if (featured === "true") {
         filter.featured = true;
       }
 
-      // Fetch from MongoDB
-      books = await Book.find(filter);
+      // If page is specified and no search query, execute high-speed DB-level pagination
+      if (!search && req.query.page) {
+        const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+        const limit = Math.max(1, parseInt(req.query.limit, 10) || 12);
+        const [totalBooks, pageResults] = await Promise.all([
+          Book.countDocuments(filter),
+          Book.find(filter)
+            .select("-images")
+            .sort({ createdAt: -1 })
+            .skip((page - 1) * limit)
+            .limit(limit)
+            .lean(),
+        ]);
+        const totalPages = Math.ceil(totalBooks / limit);
+
+        const responseData = {
+          books: pageResults.map(addDynamicSlug),
+          currentPage: page,
+          totalPages,
+          totalBooks,
+        };
+        memoryCache.set(cacheKey, responseData, 300);
+        res.set("Cache-Control", "public, max-age=120");
+        return res.json(responseData);
+      }
+
+      // If search is provided, narrow down filter in DB
+      if (search) {
+        const escapedSearch = search
+          .trim()
+          .replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        filter.$or = [
+          { title: { $regex: escapedSearch, $options: "i" } },
+          { author: { $regex: escapedSearch, $options: "i" } },
+          { category: { $regex: escapedSearch, $options: "i" } },
+          { publisher: { $regex: escapedSearch, $options: "i" } },
+        ];
+      }
+
+      // Fetch filtered results from MongoDB
+      books = await Book.find(filter).select("-images").limit(20).lean();
     }
 
     // Apply intelligent phonetic search sorting if query is provided
     if (search) {
       books = books
-        .map(b => {
+        .map((b) => {
           const bookObj = b.toObject ? b.toObject() : b;
           return {
             ...bookObj,
-            _searchScore: scoreBookRelevance(bookObj, search)
+            _searchScore: scoreBookRelevance(bookObj, search),
           };
         })
-        .filter(b => b._searchScore > 0)
+        .filter((b) => b._searchScore > 0)
         .sort((a, b) => b._searchScore - a._searchScore);
     } else if (!isMock) {
       // Sort by latest created if not mock and no search query
       books.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
     }
 
-    res.json(books.map(addDynamicSlug));
+    const transformedBooks = books.map(addDynamicSlug);
+
+    // Support pagination for search results
+    if (req.query.page) {
+      const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+      const limit = Math.max(1, parseInt(req.query.limit, 10) || 12);
+      const totalBooks = transformedBooks.length;
+      const totalPages = Math.ceil(totalBooks / limit);
+      const startIndex = (page - 1) * limit;
+      const paginatedBooks = transformedBooks.slice(
+        startIndex,
+        startIndex + limit,
+      );
+
+      const responseData = {
+        books: paginatedBooks,
+        currentPage: page,
+        totalPages,
+        totalBooks,
+      };
+      memoryCache.set(cacheKey, responseData, 300);
+      res.set("Cache-Control", "public, max-age=120");
+      return res.json(responseData);
+    }
+
+    memoryCache.set(cacheKey, transformedBooks, 300);
+    res.set("Cache-Control", "public, max-age=120");
+    res.json(transformedBooks);
   } catch (error) {
-    res.status(500).json({ message: 'Error retrieving books', error: error.message });
+    res
+      .status(500)
+      .json({ message: "Error retrieving books", error: error.message });
   }
 });
 
 // @route   GET /api/books/suggestions
 // @desc    Get live autocomplete suggestions for Books, Authors, and Publishers
-router.get('/suggestions', async (req, res) => {
+router.get("/suggestions", async (req, res) => {
   const { q } = req.query;
   if (!q || !q.trim()) {
     return res.json({ books: [], authors: [], publishers: [] });
@@ -409,9 +593,9 @@ router.get('/suggestions', async (req, res) => {
   const query = q.trim();
   const cleanQuery = query.toLowerCase();
   const normQuery = normalizePhonetic(query);
-  const flatQuery = normQuery.replace(/\s+/g, '');
+  const flatQuery = normQuery.replace(/\s+/g, "");
 
-  const isMock = process.env.USE_MOCK_DB === 'true';
+  const isMock = process.env.USE_MOCK_DB === "true";
 
   try {
     let books = [];
@@ -419,7 +603,10 @@ router.get('/suggestions', async (req, res) => {
       const db = readFallbackData();
       books = db.books || [];
     } else {
-      books = await Book.find({});
+      books = await Book.find(
+        {},
+        "title author publisher category coverImage slug language",
+      ).lean();
     }
 
     const matchedBooks = [];
@@ -428,19 +615,21 @@ router.get('/suggestions', async (req, res) => {
 
     for (const b of books) {
       const bookObj = b.toObject ? b.toObject() : b;
-      
-      const cleanTitle = (bookObj.title || '').trim().toLowerCase();
-      const cleanAuthor = (bookObj.author || '').trim().toLowerCase();
-      const cleanPub = (bookObj.publisher || '').trim().toLowerCase();
-      
-      const normTitle = normalizePhonetic(bookObj.title || '');
-      const flatTitle = normTitle.replace(/\s+/g, '');
-      
-      const normAuthor = normalizePhonetic(bookObj.author || '');
-      const flatAuthor = normAuthor.replace(/\s+/g, '');
-      
-      const normPub = bookObj.publisher ? normalizePhonetic(bookObj.publisher) : '';
-      const flatPub = normPub.replace(/\s+/g, '');
+
+      const cleanTitle = (bookObj.title || "").trim().toLowerCase();
+      const cleanAuthor = (bookObj.author || "").trim().toLowerCase();
+      const cleanPub = (bookObj.publisher || "").trim().toLowerCase();
+
+      const normTitle = normalizePhonetic(bookObj.title || "");
+      const flatTitle = normTitle.replace(/\s+/g, "");
+
+      const normAuthor = normalizePhonetic(bookObj.author || "");
+      const flatAuthor = normAuthor.replace(/\s+/g, "");
+
+      const normPub = bookObj.publisher
+        ? normalizePhonetic(bookObj.publisher)
+        : "";
+      const flatPub = normPub.replace(/\s+/g, "");
 
       let isBookMatch = false;
       let isAuthorMatch = false;
@@ -450,14 +639,17 @@ router.get('/suggestions', async (req, res) => {
       if (cleanTitle.includes(cleanQuery) || flatTitle.includes(flatQuery)) {
         isBookMatch = true;
       }
-      
+
       // Author matching
       if (cleanAuthor.includes(cleanQuery) || flatAuthor.includes(flatQuery)) {
         isAuthorMatch = true;
       }
 
       // Publisher matching
-      if (cleanPub && (cleanPub.includes(cleanQuery) || flatPub.includes(flatQuery))) {
+      if (
+        cleanPub &&
+        (cleanPub.includes(cleanQuery) || flatPub.includes(flatQuery))
+      ) {
         isPubMatch = true;
       }
 
@@ -470,7 +662,7 @@ router.get('/suggestions', async (req, res) => {
           coverImage: bookObj.coverImage,
           category: bookObj.category,
           language: bookObj.language,
-          slug: bookObj.slug || slugify(bookObj.title)
+          slug: bookObj.slug || slugify(bookObj.title),
         });
       }
 
@@ -486,214 +678,279 @@ router.get('/suggestions', async (req, res) => {
     res.json({
       books: matchedBooks.slice(0, 5),
       authors: Array.from(matchedAuthors).slice(0, 5),
-      publishers: Array.from(matchedPublishers).slice(0, 5)
+      publishers: Array.from(matchedPublishers).slice(0, 5),
     });
   } catch (error) {
-    res.status(500).json({ message: 'Error fetching suggestions', error: error.message });
+    res
+      .status(500)
+      .json({ message: "Error fetching suggestions", error: error.message });
   }
 });
 
 // @route   GET /api/books/meta/authors
 // @desc    Get all unique authors
-router.get('/meta/authors', async (req, res) => {
-  const isMock = process.env.USE_MOCK_DB === 'true';
+router.get("/meta/authors", async (req, res) => {
+  const isMock = process.env.USE_MOCK_DB === "true";
   try {
     let books = [];
     if (isMock) {
       books = readFallbackData().books || [];
     } else {
-      books = await Book.find({});
+      books = await Book.find({}, "author").lean();
     }
-    const authors = Array.from(new Set(books.map(b => b.author).filter(Boolean)));
-    const authorsData = authors.map(name => ({
+    const authors = Array.from(
+      new Set(books.map((b) => b.author).filter(Boolean)),
+    );
+    const authorsData = authors.map((name) => ({
       name,
-      slug: slugify(name)
+      slug: slugify(name),
     }));
     res.json(authorsData);
   } catch (error) {
-    res.status(500).json({ message: 'Error retrieving authors', error: error.message });
+    res
+      .status(500)
+      .json({ message: "Error retrieving authors", error: error.message });
   }
 });
 
 // @route   GET /api/books/meta/publishers
 // @desc    Get all unique publishers
-router.get('/meta/publishers', async (req, res) => {
-  const isMock = process.env.USE_MOCK_DB === 'true';
+router.get("/meta/publishers", async (req, res) => {
+  const isMock = process.env.USE_MOCK_DB === "true";
   try {
     let books = [];
     if (isMock) {
       books = readFallbackData().books || [];
     } else {
-      books = await Book.find({});
+      books = await Book.find({}, "publisher").lean();
     }
-    const publishers = Array.from(new Set(books.map(b => b.publisher).filter(Boolean)));
-    const publishersData = publishers.map(name => ({
+    const publishers = Array.from(
+      new Set(books.map((b) => b.publisher).filter(Boolean)),
+    );
+    const publishersData = publishers.map((name) => ({
       name,
-      slug: slugify(name)
+      slug: slugify(name),
     }));
     res.json(publishersData);
   } catch (error) {
-    res.status(500).json({ message: 'Error retrieving publishers', error: error.message });
+    res
+      .status(500)
+      .json({ message: "Error retrieving publishers", error: error.message });
   }
 });
 
 // @route   GET /api/books/slug/:slug
 // @desc    Get a single book by slug
-router.get('/slug/:slug', async (req, res) => {
-  const isMock = process.env.USE_MOCK_DB === 'true';
+router.get("/slug/:slug", async (req, res) => {
+  const isMock = process.env.USE_MOCK_DB === "true";
   try {
     let book = null;
     if (isMock) {
       const db = readFallbackData();
-      book = db.books.find(b => b.slug === req.params.slug || slugify(b.title) === req.params.slug);
+      book = db.books.find(
+        (b) =>
+          b.slug === req.params.slug || slugify(b.title) === req.params.slug,
+      );
     } else {
       book = await Book.findOne({ slug: req.params.slug });
       if (!book) {
         // Fallback for older books: fetch all and match in-memory
         const allBooks = await Book.find({});
-        book = allBooks.find(b => slugify(b.title) === req.params.slug);
+        book = allBooks.find((b) => slugify(b.title) === req.params.slug);
       }
     }
     if (!book) {
-      return res.status(404).json({ message: 'Book not found' });
+      return res.status(404).json({ message: "Book not found" });
     }
     res.json(addDynamicSlug(book));
   } catch (error) {
-    res.status(500).json({ message: 'Error retrieving book details', error: error.message });
+    res
+      .status(500)
+      .json({ message: "Error retrieving book details", error: error.message });
   }
 });
 
 // @route   GET /api/books/author/:slug
 // @desc    Get books by author slug
-router.get('/author/:slug', async (req, res) => {
-  const isMock = process.env.USE_MOCK_DB === 'true';
+router.get("/author/:slug", async (req, res) => {
+  const isMock = process.env.USE_MOCK_DB === "true";
   try {
     let books = [];
     if (isMock) {
       books = readFallbackData().books || [];
     } else {
-      books = await Book.find({});
+      books = await Book.find({}).select("-images").lean();
     }
-    const target = (req.params.slug || '').toLowerCase().trim();
-    const filtered = books.filter(b => {
+    const target = (req.params.slug || "").toLowerCase().trim();
+    const filtered = books.filter((b) => {
       if (!b.author) return false;
       const bSlug = slugify(b.author).toLowerCase();
       const bName = b.author.toLowerCase().trim();
       return (
         bSlug === target ||
         bName === target ||
-        bName === target.replace(/-/g, ' ') ||
+        bName === target.replace(/-/g, " ") ||
         bSlug === slugify(target)
       );
     });
     res.json(filtered.map(addDynamicSlug));
   } catch (error) {
-    res.status(500).json({ message: 'Error retrieving books by author', error: error.message });
+    res
+      .status(500)
+      .json({
+        message: "Error retrieving books by author",
+        error: error.message,
+      });
   }
 });
 
 // @route   GET /api/books/publisher/:slug
 // @desc    Get books by publisher slug
-router.get('/publisher/:slug', async (req, res) => {
-  const isMock = process.env.USE_MOCK_DB === 'true';
+router.get("/publisher/:slug", async (req, res) => {
+  const isMock = process.env.USE_MOCK_DB === "true";
   try {
     let books = [];
     if (isMock) {
       books = readFallbackData().books || [];
     } else {
-      books = await Book.find({});
+      books = await Book.find({}).select("-images").lean();
     }
-    const target = (req.params.slug || '').toLowerCase().trim();
-    const filtered = books.filter(b => {
+    const target = (req.params.slug || "").toLowerCase().trim();
+    const filtered = books.filter((b) => {
       if (!b.publisher) return false;
       const bSlug = slugify(b.publisher).toLowerCase();
       const bName = b.publisher.toLowerCase().trim();
       return (
         bSlug === target ||
         bName === target ||
-        bName === target.replace(/-/g, ' ') ||
+        bName === target.replace(/-/g, " ") ||
         bSlug === slugify(target)
       );
     });
     res.json(filtered.map(addDynamicSlug));
   } catch (error) {
-    res.status(500).json({ message: 'Error retrieving books by publisher', error: error.message });
+    res
+      .status(500)
+      .json({
+        message: "Error retrieving books by publisher",
+        error: error.message,
+      });
   }
 });
 
 // @route   GET /api/books/category/:slug
 // @desc    Get books by category slug
-router.get('/category/:slug', async (req, res) => {
-  const isMock = process.env.USE_MOCK_DB === 'true';
+router.get("/category/:slug", async (req, res) => {
+  const isMock = process.env.USE_MOCK_DB === "true";
   try {
     let books = [];
     if (isMock) {
       books = readFallbackData().books || [];
     } else {
-      books = await Book.find({});
+      books = await Book.find({}).select("-images").lean();
     }
-    const filtered = books.filter(b => slugify(b.category) === req.params.slug);
+    const filtered = books.filter(
+      (b) => slugify(b.category) === req.params.slug,
+    );
     res.json(filtered.map(addDynamicSlug));
   } catch (error) {
-    res.status(500).json({ message: 'Error retrieving books by category', error: error.message });
+    res
+      .status(500)
+      .json({
+        message: "Error retrieving books by category",
+        error: error.message,
+      });
   }
 });
 
 // @route   GET /api/books/admin
 // @desc    Get all books including archived ones (Admin/Staff only)
-router.get('/admin', verifyAdminOrStaff, async (req, res) => {
-  const isMock = process.env.USE_MOCK_DB === 'true';
+router.get("/admin", verifyAdminOrStaff, async (req, res) => {
+  const isMock = process.env.USE_MOCK_DB === "true";
   try {
     let books = [];
     if (isMock) {
       const db = readFallbackData();
       books = db.books || [];
     } else {
-      books = await Book.find().sort({ createdAt: -1 });
+      books = await Book.find()
+        .select("-images")
+        .sort({ createdAt: -1 })
+        .lean();
     }
     res.json(books.map(addDynamicSlug));
   } catch (error) {
-    res.status(500).json({ message: 'Error retrieving admin catalog', error: error.message });
+    res
+      .status(500)
+      .json({
+        message: "Error retrieving admin catalog",
+        error: error.message,
+      });
   }
 });
 
 // @route   GET /api/books/:id
 // @desc    Get a single book by ID
-router.get('/:id', async (req, res) => {
-  const isMock = process.env.USE_MOCK_DB === 'true';
+router.get("/:id", async (req, res) => {
+  const isMock = process.env.USE_MOCK_DB === "true";
 
   try {
     if (isMock) {
       const db = readFallbackData();
-      const book = db.books.find(b => b._id === req.params.id);
+      const book = db.books.find((b) => b._id === req.params.id);
       if (!book) {
-        return res.status(404).json({ message: 'Book not found' });
+        return res.status(404).json({ message: "Book not found" });
       }
       return res.json(addDynamicSlug(book));
     } else {
       const book = await Book.findById(req.params.id);
       if (!book) {
-        return res.status(404).json({ message: 'Book not found' });
+        return res.status(404).json({ message: "Book not found" });
       }
       res.json(addDynamicSlug(book));
     }
   } catch (error) {
-    res.status(500).json({ message: 'Error retrieving book details', error: error.message });
+    res
+      .status(500)
+      .json({ message: "Error retrieving book details", error: error.message });
   }
 });
 
 // @route   POST /api/books
 // @desc    Create a new book (Admin only)
-router.post('/', verifyAdmin, async (req, res) => {
-  const { 
-    title, author, price, category, description, coverImage, stock, featured, language,
-    publisher, pages, publishYear, isbn, availabilityStatus,
-    images, tamilTitle, englishTitle, sinhalaTitle, discount, discountPercent, isOffer, bestSeller, newArrival, status
+router.post("/", verifyAdmin, async (req, res) => {
+  const {
+    title,
+    author,
+    price,
+    category,
+    description,
+    coverImage,
+    stock,
+    featured,
+    language,
+    publisher,
+    pages,
+    publishYear,
+    isbn,
+    availabilityStatus,
+    images,
+    tamilTitle,
+    englishTitle,
+    sinhalaTitle,
+    discount,
+    discountPercent,
+    isOffer,
+    bestSeller,
+    newArrival,
+    status,
   } = req.body;
-  const isMock = process.env.USE_MOCK_DB === 'true';
+  const isMock = process.env.USE_MOCK_DB === "true";
 
   if (!title || !author || !price || !category || !description) {
-    return res.status(400).json({ message: 'Please provide all required fields.' });
+    return res
+      .status(400)
+      .json({ message: "Please provide all required fields." });
   }
 
   const numPrice = Number(price);
@@ -702,43 +959,51 @@ router.post('/', verifyAdmin, async (req, res) => {
   if (!numDiscountPercent && numPrice > 0 && numDiscount > 0) {
     numDiscountPercent = Math.round((numDiscount / numPrice) * 100);
   }
-  const boolIsOffer = isOffer === true || isOffer === 'true' || numDiscount > 0 || numDiscountPercent > 0 || (category && category.toLowerCase() === 'offers');
+  const boolIsOffer =
+    isOffer === true ||
+    isOffer === "true" ||
+    numDiscount > 0 ||
+    numDiscountPercent > 0 ||
+    (category && category.toLowerCase() === "offers");
 
   try {
     if (isMock) {
       const db = readFallbackData();
       const newBook = {
-        _id: 'book_' + Date.now(),
+        _id: "book_" + Date.now(),
         title,
         author,
         price: numPrice,
         category,
         description,
-        coverImage: coverImage || 'https://images.unsplash.com/photo-1543002588-bfa74002ed7e?auto=format&fit=crop&q=80&w=600',
+        coverImage:
+          coverImage ||
+          "https://images.unsplash.com/photo-1543002588-bfa74002ed7e?auto=format&fit=crop&q=80&w=600",
         stock: Number(stock) || 10,
-        featured: featured === true || featured === 'true',
+        featured: featured === true || featured === "true",
         rating: 4.5,
-        language: language || 'English',
-        publisher: publisher || '',
+        language: language || "English",
+        publisher: publisher || "",
         pages: Number(pages) || 0,
         publishYear: Number(publishYear) || new Date().getFullYear(),
-        isbn: isbn || '',
-        availabilityStatus: availabilityStatus || 'In Stock',
+        isbn: isbn || "",
+        availabilityStatus: availabilityStatus || "In Stock",
         images: Array.isArray(images) ? images : [],
-        tamilTitle: tamilTitle || '',
-        englishTitle: englishTitle || '',
-        sinhalaTitle: sinhalaTitle || '',
+        tamilTitle: tamilTitle || "",
+        englishTitle: englishTitle || "",
+        sinhalaTitle: sinhalaTitle || "",
         discount: numDiscount,
         discountPercent: numDiscountPercent,
         isOffer: boolIsOffer,
-        bestSeller: bestSeller === true || bestSeller === 'true',
-        newArrival: newArrival === true || newArrival === 'true',
-        status: status || 'active',
-        views: 0
+        bestSeller: bestSeller === true || bestSeller === "true",
+        newArrival: newArrival === true || newArrival === "true",
+        status: status || "active",
+        views: 0,
       };
 
       db.books.push(newBook);
       writeFallbackData(db);
+      memoryCache.invalidatePrefix("books:");
       res.status(201).json(addDynamicSlug(newBook));
     } else {
       const newBook = new Book({
@@ -757,52 +1022,86 @@ router.post('/', verifyAdmin, async (req, res) => {
         isbn,
         availabilityStatus,
         images: Array.isArray(images) ? images : [],
-        tamilTitle: tamilTitle || '',
-        englishTitle: englishTitle || '',
-        sinhalaTitle: sinhalaTitle || '',
+        tamilTitle: tamilTitle || "",
+        englishTitle: englishTitle || "",
+        sinhalaTitle: sinhalaTitle || "",
         discount: numDiscount,
         discountPercent: numDiscountPercent,
         isOffer: boolIsOffer,
-        bestSeller: bestSeller === true || bestSeller === 'true',
-        newArrival: newArrival === true || newArrival === 'true',
-        status: status || 'active'
+        bestSeller: bestSeller === true || bestSeller === "true",
+        newArrival: newArrival === true || newArrival === "true",
+        status: status || "active",
       });
 
       await newBook.save();
+      memoryCache.invalidatePrefix("books:");
       res.status(201).json(addDynamicSlug(newBook));
     }
   } catch (error) {
-    res.status(500).json({ message: 'Error creating book', error: error.message });
+    res
+      .status(500)
+      .json({ message: "Error creating book", error: error.message });
   }
 });
 
 // @route   PUT /api/books/:id
 // @desc    Update an existing book (Admin only)
-router.put('/:id', verifyAdmin, async (req, res) => {
-  const isMock = process.env.USE_MOCK_DB === 'true';
-  const { 
-    title, author, price, category, description, coverImage, stock, featured, language,
-    publisher, pages, publishYear, isbn, availabilityStatus,
-    images, tamilTitle, englishTitle, sinhalaTitle, discount, discountPercent, isOffer, bestSeller, newArrival, status
+router.put("/:id", verifyAdmin, async (req, res) => {
+  const isMock = process.env.USE_MOCK_DB === "true";
+  const {
+    title,
+    author,
+    price,
+    category,
+    description,
+    coverImage,
+    stock,
+    featured,
+    language,
+    publisher,
+    pages,
+    publishYear,
+    isbn,
+    availabilityStatus,
+    images,
+    tamilTitle,
+    englishTitle,
+    sinhalaTitle,
+    discount,
+    discountPercent,
+    isOffer,
+    bestSeller,
+    newArrival,
+    status,
   } = req.body;
 
   try {
     const numPrice = price !== undefined ? Number(price) : undefined;
     const numDiscount = discount !== undefined ? Number(discount) : undefined;
-    let numDiscountPercent = discountPercent !== undefined ? Number(discountPercent) : undefined;
-    if (numDiscountPercent === undefined && numPrice !== undefined && numDiscount !== undefined && numPrice > 0 && numDiscount > 0) {
+    let numDiscountPercent =
+      discountPercent !== undefined ? Number(discountPercent) : undefined;
+    if (
+      numDiscountPercent === undefined &&
+      numPrice !== undefined &&
+      numDiscount !== undefined &&
+      numPrice > 0 &&
+      numDiscount > 0
+    ) {
       numDiscountPercent = Math.round((numDiscount / numPrice) * 100);
     }
-    const boolIsOffer = isOffer !== undefined 
-      ? (isOffer === true || isOffer === 'true') 
-      : (numDiscount !== undefined ? numDiscount > 0 : undefined);
+    const boolIsOffer =
+      isOffer !== undefined
+        ? isOffer === true || isOffer === "true"
+        : numDiscount !== undefined
+          ? numDiscount > 0
+          : undefined;
 
     if (isMock) {
       const db = readFallbackData();
-      const index = db.books.findIndex(b => b._id === req.params.id);
-      
+      const index = db.books.findIndex((b) => b._id === req.params.id);
+
       if (index === -1) {
-        return res.status(404).json({ message: 'Book not found' });
+        return res.status(404).json({ message: "Book not found" });
       }
 
       const updatedBook = {
@@ -814,151 +1113,212 @@ router.put('/:id', verifyAdmin, async (req, res) => {
         description: description || db.books[index].description,
         coverImage: coverImage || db.books[index].coverImage,
         stock: stock !== undefined ? Number(stock) : db.books[index].stock,
-        featured: featured !== undefined ? (featured === true || featured === 'true') : db.books[index].featured,
+        featured:
+          featured !== undefined
+            ? featured === true || featured === "true"
+            : db.books[index].featured,
         language: language || db.books[index].language,
-        publisher: publisher !== undefined ? publisher : db.books[index].publisher,
+        publisher:
+          publisher !== undefined ? publisher : db.books[index].publisher,
         pages: pages !== undefined ? Number(pages) : db.books[index].pages,
-        publishYear: publishYear !== undefined ? Number(publishYear) : db.books[index].publishYear,
+        publishYear:
+          publishYear !== undefined
+            ? Number(publishYear)
+            : db.books[index].publishYear,
         isbn: isbn !== undefined ? isbn : db.books[index].isbn,
-        availabilityStatus: availabilityStatus || db.books[index].availabilityStatus,
+        availabilityStatus:
+          availabilityStatus || db.books[index].availabilityStatus,
         images: Array.isArray(images) ? images : db.books[index].images || [],
-        tamilTitle: tamilTitle !== undefined ? tamilTitle : db.books[index].tamilTitle || '',
-        englishTitle: englishTitle !== undefined ? englishTitle : db.books[index].englishTitle || '',
-        sinhalaTitle: sinhalaTitle !== undefined ? sinhalaTitle : db.books[index].sinhalaTitle || '',
-        discount: numDiscount !== undefined ? numDiscount : (db.books[index].discount || 0),
-        discountPercent: numDiscountPercent !== undefined ? numDiscountPercent : (db.books[index].discountPercent || 0),
-        isOffer: boolIsOffer !== undefined ? boolIsOffer : (db.books[index].isOffer || false),
-        bestSeller: bestSeller !== undefined ? (bestSeller === true || bestSeller === 'true') : db.books[index].bestSeller || false,
-        newArrival: newArrival !== undefined ? (newArrival === true || newArrival === 'true') : db.books[index].newArrival || false,
-        status: status || db.books[index].status || 'active'
+        tamilTitle:
+          tamilTitle !== undefined
+            ? tamilTitle
+            : db.books[index].tamilTitle || "",
+        englishTitle:
+          englishTitle !== undefined
+            ? englishTitle
+            : db.books[index].englishTitle || "",
+        sinhalaTitle:
+          sinhalaTitle !== undefined
+            ? sinhalaTitle
+            : db.books[index].sinhalaTitle || "",
+        discount:
+          numDiscount !== undefined
+            ? numDiscount
+            : db.books[index].discount || 0,
+        discountPercent:
+          numDiscountPercent !== undefined
+            ? numDiscountPercent
+            : db.books[index].discountPercent || 0,
+        isOffer:
+          boolIsOffer !== undefined
+            ? boolIsOffer
+            : db.books[index].isOffer || false,
+        bestSeller:
+          bestSeller !== undefined
+            ? bestSeller === true || bestSeller === "true"
+            : db.books[index].bestSeller || false,
+        newArrival:
+          newArrival !== undefined
+            ? newArrival === true || newArrival === "true"
+            : db.books[index].newArrival || false,
+        status: status || db.books[index].status || "active",
       };
 
       db.books[index] = updatedBook;
       writeFallbackData(db);
       res.json(addDynamicSlug(updatedBook));
     } else {
-      const updateData = { 
-        title, author, category, description, coverImage, stock, featured, language,
-        publisher, pages, publishYear, isbn, availabilityStatus,
-        images, tamilTitle, englishTitle, sinhalaTitle, bestSeller, newArrival, status
+      const updateData = {
+        title,
+        author,
+        category,
+        description,
+        coverImage,
+        stock,
+        featured,
+        language,
+        publisher,
+        pages,
+        publishYear,
+        isbn,
+        availabilityStatus,
+        images,
+        tamilTitle,
+        englishTitle,
+        sinhalaTitle,
+        bestSeller,
+        newArrival,
+        status,
       };
       if (numPrice !== undefined) updateData.price = numPrice;
       if (numDiscount !== undefined) updateData.discount = numDiscount;
-      if (numDiscountPercent !== undefined) updateData.discountPercent = numDiscountPercent;
+      if (numDiscountPercent !== undefined)
+        updateData.discountPercent = numDiscountPercent;
       if (boolIsOffer !== undefined) updateData.isOffer = boolIsOffer;
 
       const updatedBook = await Book.findByIdAndUpdate(
         req.params.id,
         updateData,
-        { new: true, runValidators: true }
+        { new: true, runValidators: true },
       );
 
       if (!updatedBook) {
-        return res.status(404).json({ message: 'Book not found' });
+        return res.status(404).json({ message: "Book not found" });
       }
+      memoryCache.invalidatePrefix("books:");
       res.json(addDynamicSlug(updatedBook));
     }
   } catch (error) {
-    res.status(500).json({ message: 'Error updating book', error: error.message });
+    res
+      .status(500)
+      .json({ message: "Error updating book", error: error.message });
   }
 });
 
 // @route   DELETE /api/books/:id
 // @desc    Delete a book (Admin only)
-router.delete('/:id', verifyAdmin, async (req, res) => {
-  const isMock = process.env.USE_MOCK_DB === 'true';
+router.delete("/:id", verifyAdmin, async (req, res) => {
+  const isMock = process.env.USE_MOCK_DB === "true";
 
   try {
     if (isMock) {
       const db = readFallbackData();
-      const index = db.books.findIndex(b => b._id === req.params.id);
-      
+      const index = db.books.findIndex((b) => b._id === req.params.id);
+
       if (index === -1) {
-        return res.status(404).json({ message: 'Book not found' });
+        return res.status(404).json({ message: "Book not found" });
       }
 
       db.books.splice(index, 1);
       writeFallbackData(db);
-      res.json({ message: 'Book deleted successfully' });
+      memoryCache.invalidatePrefix("books:");
+      res.json({ message: "Book deleted successfully" });
     } else {
       const deletedBook = await Book.findByIdAndDelete(req.params.id);
       if (!deletedBook) {
-        return res.status(404).json({ message: 'Book not found' });
+        return res.status(404).json({ message: "Book not found" });
       }
-      res.json({ message: 'Book deleted successfully' });
+      memoryCache.invalidatePrefix("books:");
+      res.json({ message: "Book deleted successfully" });
     }
   } catch (error) {
-    res.status(500).json({ message: 'Error deleting book', error: error.message });
+    res
+      .status(500)
+      .json({ message: "Error deleting book", error: error.message });
   }
 });
 
-
-
 // @route   PUT /api/books/:id/archive
 // @desc    Archive a book (Admin only)
-router.put('/:id/archive', verifyAdmin, async (req, res) => {
-  const isMock = process.env.USE_MOCK_DB === 'true';
+router.put("/:id/archive", verifyAdmin, async (req, res) => {
+  const isMock = process.env.USE_MOCK_DB === "true";
   try {
     if (isMock) {
       const db = readFallbackData();
-      const index = db.books.findIndex(b => b._id === req.params.id);
+      const index = db.books.findIndex((b) => b._id === req.params.id);
       if (index === -1) {
-        return res.status(404).json({ message: 'Book not found' });
+        return res.status(404).json({ message: "Book not found" });
       }
-      db.books[index].status = 'archived';
+      db.books[index].status = "archived";
       writeFallbackData(db);
       res.json(addDynamicSlug(db.books[index]));
     } else {
       const book = await Book.findById(req.params.id);
       if (!book) {
-        return res.status(404).json({ message: 'Book not found' });
+        return res.status(404).json({ message: "Book not found" });
       }
-      book.status = 'archived';
+      book.status = "archived";
       await book.save();
       res.json(addDynamicSlug(book));
     }
   } catch (error) {
-    res.status(500).json({ message: 'Error archiving book', error: error.message });
+    res
+      .status(500)
+      .json({ message: "Error archiving book", error: error.message });
   }
 });
 
 // @route   PUT /api/books/:id/restore
 // @desc    Restore an archived book (Admin only)
-router.put('/:id/restore', verifyAdmin, async (req, res) => {
-  const isMock = process.env.USE_MOCK_DB === 'true';
+router.put("/:id/restore", verifyAdmin, async (req, res) => {
+  const isMock = process.env.USE_MOCK_DB === "true";
   try {
     if (isMock) {
       const db = readFallbackData();
-      const index = db.books.findIndex(b => b._id === req.params.id);
+      const index = db.books.findIndex((b) => b._id === req.params.id);
       if (index === -1) {
-        return res.status(404).json({ message: 'Book not found' });
+        return res.status(404).json({ message: "Book not found" });
       }
-      db.books[index].status = 'active';
+      db.books[index].status = "active";
       writeFallbackData(db);
       res.json(addDynamicSlug(db.books[index]));
     } else {
       const book = await Book.findById(req.params.id);
       if (!book) {
-        return res.status(404).json({ message: 'Book not found' });
+        return res.status(404).json({ message: "Book not found" });
       }
-      book.status = 'active';
+      book.status = "active";
       await book.save();
       res.json(addDynamicSlug(book));
     }
   } catch (error) {
-    res.status(500).json({ message: 'Error restoring book', error: error.message });
+    res
+      .status(500)
+      .json({ message: "Error restoring book", error: error.message });
   }
 });
 
 // @route   POST /api/books/bulk-import
 // @desc    Bulk import books (Admin only)
-router.post('/bulk-import', verifyAdmin, async (req, res) => {
+router.post("/bulk-import", verifyAdmin, async (req, res) => {
   const { books } = req.body;
   if (!books || !Array.isArray(books)) {
-    return res.status(400).json({ message: 'Payload must contain a books array.' });
+    return res
+      .status(400)
+      .json({ message: "Payload must contain a books array." });
   }
 
-  const isMock = process.env.USE_MOCK_DB === 'true';
+  const isMock = process.env.USE_MOCK_DB === "true";
 
   try {
     const importedBooks = [];
@@ -967,32 +1327,36 @@ router.post('/bulk-import', verifyAdmin, async (req, res) => {
       for (const b of books) {
         if (!b.title || !b.author || !b.price || !b.category) continue;
         const newBook = {
-          _id: b._id || 'book_' + Date.now() + Math.random().toString(36).substr(2, 5),
+          _id:
+            b._id ||
+            "book_" + Date.now() + Math.random().toString(36).substr(2, 5),
           title: b.title,
           author: b.author,
           price: Number(b.price),
           category: b.category,
-          description: b.description || 'No description available.',
-          coverImage: b.coverImage || 'https://images.unsplash.com/photo-1543002588-bfa74002ed7e?auto=format&fit=crop&q=80&w=600',
+          description: b.description || "No description available.",
+          coverImage:
+            b.coverImage ||
+            "https://images.unsplash.com/photo-1543002588-bfa74002ed7e?auto=format&fit=crop&q=80&w=600",
           images: Array.isArray(b.images) ? b.images : [],
-          tamilTitle: b.tamilTitle || '',
-          englishTitle: b.englishTitle || '',
-          sinhalaTitle: b.sinhalaTitle || '',
+          tamilTitle: b.tamilTitle || "",
+          englishTitle: b.englishTitle || "",
+          sinhalaTitle: b.sinhalaTitle || "",
           discount: Number(b.discount || 0),
           stock: Number(b.stock !== undefined ? b.stock : 10),
-          language: b.language || 'English',
-          publisher: b.publisher || '',
+          language: b.language || "English",
+          publisher: b.publisher || "",
           pages: Number(b.pages || 0),
           publishYear: Number(b.publishYear || new Date().getFullYear()),
-          isbn: b.isbn || '',
-          availabilityStatus: b.availabilityStatus || 'In Stock',
-          bestSeller: b.bestSeller === true || b.bestSeller === 'true',
-          newArrival: b.newArrival === true || b.newArrival === 'true',
-          status: b.status || 'active',
+          isbn: b.isbn || "",
+          availabilityStatus: b.availabilityStatus || "In Stock",
+          bestSeller: b.bestSeller === true || b.bestSeller === "true",
+          newArrival: b.newArrival === true || b.newArrival === "true",
+          status: b.status || "active",
           views: 0,
           slug: b.slug || slugify(b.title),
           createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
+          updatedAt: new Date().toISOString(),
         };
         db.books.push(newBook);
         importedBooks.push(newBook);
@@ -1006,128 +1370,148 @@ router.post('/bulk-import', verifyAdmin, async (req, res) => {
           author: b.author,
           price: Number(b.price),
           category: b.category,
-          description: b.description || 'No description available.',
+          description: b.description || "No description available.",
           coverImage: b.coverImage,
           images: Array.isArray(b.images) ? b.images : [],
-          tamilTitle: b.tamilTitle || '',
-          englishTitle: b.englishTitle || '',
-          sinhalaTitle: b.sinhalaTitle || '',
+          tamilTitle: b.tamilTitle || "",
+          englishTitle: b.englishTitle || "",
+          sinhalaTitle: b.sinhalaTitle || "",
           discount: Number(b.discount || 0),
           stock: Number(b.stock !== undefined ? b.stock : 10),
-          language: b.language || 'English',
-          publisher: b.publisher || '',
+          language: b.language || "English",
+          publisher: b.publisher || "",
           pages: Number(b.pages || 0),
           publishYear: Number(b.publishYear || new Date().getFullYear()),
-          isbn: b.isbn || '',
-          availabilityStatus: b.availabilityStatus || 'In Stock',
-          bestSeller: b.bestSeller === true || b.bestSeller === 'true',
-          newArrival: b.newArrival === true || b.newArrival === 'true',
-          status: b.status || 'active'
+          isbn: b.isbn || "",
+          availabilityStatus: b.availabilityStatus || "In Stock",
+          bestSeller: b.bestSeller === true || b.bestSeller === "true",
+          newArrival: b.newArrival === true || b.newArrival === "true",
+          status: b.status || "active",
         });
         await newBook.save();
         importedBooks.push(newBook);
       }
     }
-    res.status(201).json({ message: `Successfully imported ${importedBooks.length} books.`, count: importedBooks.length });
+    res
+      .status(201)
+      .json({
+        message: `Successfully imported ${importedBooks.length} books.`,
+        count: importedBooks.length,
+      });
   } catch (error) {
-    res.status(500).json({ message: 'Error importing books', error: error.message });
+    res
+      .status(500)
+      .json({ message: "Error importing books", error: error.message });
   }
 });
 
 // @route   PUT /api/books/:id/stock
 // @desc    Manually adjust book stock & record a transaction log (Admin/Staff only)
-router.put('/:id/stock', verifyAdminOrStaff, async (req, res) => {
+router.put("/:id/stock", verifyAdminOrStaff, async (req, res) => {
   const { adjustment, note } = req.body;
   if (adjustment === undefined || isNaN(Number(adjustment))) {
-    return res.status(400).json({ message: 'Adjustment value must be a valid number.' });
+    return res
+      .status(400)
+      .json({ message: "Adjustment value must be a valid number." });
   }
 
   const adjVal = Number(adjustment);
-  const isMock = process.env.USE_MOCK_DB === 'true';
+  const isMock = process.env.USE_MOCK_DB === "true";
 
   try {
     if (isMock) {
       const db = readFallbackData();
-      const index = db.books.findIndex(b => b._id === req.params.id);
+      const index = db.books.findIndex((b) => b._id === req.params.id);
       if (index === -1) {
-        return res.status(404).json({ message: 'Book not found' });
+        return res.status(404).json({ message: "Book not found" });
       }
 
       const prevStock = Number(db.books[index].stock || 0);
       const newStock = Math.max(0, prevStock + adjVal);
       db.books[index].stock = newStock;
-      
+
       // Update availabilityStatus based on new stock
-      db.books[index].availabilityStatus = newStock === 0 ? 'Out of Stock' : 'In Stock';
+      db.books[index].availabilityStatus =
+        newStock === 0 ? "Out of Stock" : "In Stock";
 
       // Create log entry
       if (!db.stockLogs) db.stockLogs = [];
       const newLog = {
-        _id: 'log_' + Date.now(),
+        _id: "log_" + Date.now(),
         bookId: req.params.id,
         bookTitle: db.books[index].title,
-        operatorName: req.user?.name || 'Staff User',
-        actionType: adjVal >= 0 ? 'increase' : 'decrease',
+        operatorName: req.user?.name || "Staff User",
+        actionType: adjVal >= 0 ? "increase" : "decrease",
         quantity: Math.abs(adjVal),
         prevStock,
         newStock,
-        note: note || '',
-        createdAt: new Date().toISOString()
+        note: note || "",
+        createdAt: new Date().toISOString(),
       };
       db.stockLogs.push(newLog);
 
       writeFallbackData(db);
-      res.json({ success: true, book: addDynamicSlug(db.books[index]), log: newLog });
+      res.json({
+        success: true,
+        book: addDynamicSlug(db.books[index]),
+        log: newLog,
+      });
     } else {
       const book = await Book.findById(req.params.id);
       if (!book) {
-        return res.status(404).json({ message: 'Book not found' });
+        return res.status(404).json({ message: "Book not found" });
       }
 
       const prevStock = Number(book.stock || 0);
       const newStock = Math.max(0, prevStock + adjVal);
       book.stock = newStock;
-      book.availabilityStatus = newStock === 0 ? 'Out of Stock' : 'In Stock';
+      book.availabilityStatus = newStock === 0 ? "Out of Stock" : "In Stock";
       await book.save();
 
       // Create log entry
       const log = new StockLog({
         bookId: book._id,
         bookTitle: book.title,
-        operatorName: req.user?.name || 'Staff User',
-        actionType: adjVal >= 0 ? 'increase' : 'decrease',
+        operatorName: req.user?.name || "Staff User",
+        actionType: adjVal >= 0 ? "increase" : "decrease",
         quantity: Math.abs(adjVal),
         prevStock,
         newStock,
-        note: note || ''
+        note: note || "",
       });
       await log.save();
 
       res.json({ success: true, book: addDynamicSlug(book), log });
     }
   } catch (error) {
-    res.status(500).json({ message: 'Error adjusting stock', error: error.message });
+    res
+      .status(500)
+      .json({ message: "Error adjusting stock", error: error.message });
   }
 });
 
 // @route   GET /api/books/:id/stock-logs
 // @desc    Retrieve stock adjustment logs for a specific book (Admin/Staff only)
-router.get('/:id/stock-logs', verifyAdminOrStaff, async (req, res) => {
-  const isMock = process.env.USE_MOCK_DB === 'true';
+router.get("/:id/stock-logs", verifyAdminOrStaff, async (req, res) => {
+  const isMock = process.env.USE_MOCK_DB === "true";
 
   try {
     let logs = [];
     if (isMock) {
       const db = readFallbackData();
-      logs = (db.stockLogs || []).filter(l => l.bookId === req.params.id)
+      logs = (db.stockLogs || [])
+        .filter((l) => l.bookId === req.params.id)
         .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
     } else {
-      logs = await StockLog.find({ bookId: req.params.id })
-        .sort({ createdAt: -1 });
+      logs = await StockLog.find({ bookId: req.params.id }).sort({
+        createdAt: -1,
+      });
     }
     res.json(logs);
   } catch (error) {
-    res.status(500).json({ message: 'Error retrieving stock logs', error: error.message });
+    res
+      .status(500)
+      .json({ message: "Error retrieving stock logs", error: error.message });
   }
 });
 

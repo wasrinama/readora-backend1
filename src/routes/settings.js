@@ -13,6 +13,7 @@ import Publisher from '../models/Publisher.js';
 import Banner from '../models/Banner.js';
 import StockLog from '../models/StockLog.js';
 import { verifyAdmin, verifyAdminOrStaff } from '../middleware/auth.js';
+import { memoryCache } from '../utils/cache.js';
 
 const router = express.Router();
 
@@ -26,8 +27,15 @@ if (!fs.existsSync(backupsDir)) {
 }
 
 // @route   GET /api/settings
-// @desc    Get all settings as a key-value object
+// @desc    Get all settings as a key-value object (Cached in memory)
 router.get('/', async (req, res) => {
+  const cacheKey = 'settings:all';
+  const cached = memoryCache.get(cacheKey);
+  if (cached) {
+    res.set('Cache-Control', 'public, max-age=300');
+    return res.json(cached);
+  }
+
   const isMock = process.env.USE_MOCK_DB === 'true';
   try {
     if (isMock) {
@@ -36,13 +44,17 @@ router.get('/', async (req, res) => {
       (db.settings || []).forEach(s => {
         settingsMap[s.key] = s.value;
       });
+      memoryCache.set(cacheKey, settingsMap, 600);
+      res.set('Cache-Control', 'public, max-age=300');
       return res.json(settingsMap);
     } else {
-      const settings = await Setting.find();
+      const settings = await Setting.find().lean();
       const settingsMap = {};
       settings.forEach(s => {
         settingsMap[s.key] = s.value;
       });
+      memoryCache.set(cacheKey, settingsMap, 600);
+      res.set('Cache-Control', 'public, max-age=300');
       return res.json(settingsMap);
     }
   } catch (error) {
@@ -51,10 +63,17 @@ router.get('/', async (req, res) => {
 });
 
 // @route   GET /api/settings/:key
-// @desc    Get setting by key
+// @desc    Get setting by key (Cached in memory)
 router.get('/:key', async (req, res) => {
-  const isMock = process.env.USE_MOCK_DB === 'true';
   const { key } = req.params;
+  const cacheKey = `setting:${key}`;
+  const cached = memoryCache.get(cacheKey);
+  if (cached) {
+    res.set('Cache-Control', 'public, max-age=300');
+    return res.json(cached);
+  }
+
+  const isMock = process.env.USE_MOCK_DB === 'true';
 
   try {
     if (isMock) {
@@ -64,12 +83,16 @@ router.get('/:key', async (req, res) => {
       if (!setting) {
         return res.status(404).json({ message: 'Setting not found' });
       }
+      memoryCache.set(cacheKey, setting, 600);
+      res.set('Cache-Control', 'public, max-age=300');
       return res.json(setting);
     } else {
-      const setting = await Setting.findOne({ key });
+      const setting = await Setting.findOne({ key }).lean();
       if (!setting) {
         return res.status(404).json({ message: 'Setting not found' });
       }
+      memoryCache.set(cacheKey, setting, 600);
+      res.set('Cache-Control', 'public, max-age=300');
       return res.json(setting);
     }
   } catch (error) {
@@ -88,6 +111,7 @@ router.post('/', verifyAdminOrStaff, async (req, res) => {
   }
 
   try {
+    memoryCache.invalidatePrefix('setting');
     if (isMock) {
       const db = readFallbackData();
       if (!db.settings) db.settings = [];

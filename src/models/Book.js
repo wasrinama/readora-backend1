@@ -11,7 +11,8 @@ const bookSchema = new mongoose.Schema({
   author: {
     type: String,
     required: true,
-    trim: true
+    trim: true,
+    index: true
   },
   price: {
     type: Number,
@@ -21,7 +22,8 @@ const bookSchema = new mongoose.Schema({
   category: {
     type: String,
     required: true,
-    trim: true
+    trim: true,
+    index: true
   },
   description: {
     type: String,
@@ -39,7 +41,8 @@ const bookSchema = new mongoose.Schema({
   },
   featured: {
     type: Boolean,
-    default: false
+    default: false,
+    index: true
   },
   stock: {
     type: Number,
@@ -54,7 +57,8 @@ const bookSchema = new mongoose.Schema({
   publisher: {
     type: String,
     trim: true,
-    default: ''
+    default: '',
+    index: true
   },
   pages: {
     type: Number,
@@ -123,7 +127,8 @@ const bookSchema = new mongoose.Schema({
   },
   slug: {
     type: String,
-    trim: true
+    trim: true,
+    index: true
   }
 }, {
   timestamps: true

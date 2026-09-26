@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import compression from 'compression';
 import dotenv from 'dotenv';
 import { connectDB } from './config/db.js';
 import authRoutes from './routes/auth.js';
@@ -14,6 +15,7 @@ import publisherRoutes from './routes/publishers.js';
 import bannerRoutes from './routes/banners.js';
 import reportRoutes from './routes/reports.js';
 import aiRoutes from './routes/ai.js';
+import uploadRoutes from './routes/upload.js';
 
 // Load environment variables
 dotenv.config();
@@ -27,6 +29,9 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Cache-Control', 'Pragma']
 }));
+
+// Compress every response (gzip) before sending it to the browser
+app.use(compression());
 
 // Body parser with increased limit to support base64 image uploads
 app.use(express.json({ limit: '10mb' }));
@@ -55,6 +60,7 @@ app.use('/api/publishers', publisherRoutes);
 app.use('/api/banners', bannerRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/ai', aiRoutes);
+app.use('/api/upload', uploadRoutes);
 
 // Database connection initialization
 await connectDB();
