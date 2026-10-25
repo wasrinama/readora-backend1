@@ -6,7 +6,6 @@ import Banner from './models/Banner.js';
 
 dotenv.config();
 
-// Uploads a single base64 data-URI string to Cloudinary and returns the hosted URL
 async function uploadBase64ToCloudinary(base64String) {
   const result = await cloudinary.uploader.upload(base64String, {
     folder: 'readora',
@@ -16,71 +15,63 @@ async function uploadBase64ToCloudinary(base64String) {
 }
 
 async function migrateBooks() {
-  const books = await Book.find({
+  // Only fetch the IDs first, so we never hold all the images in memory at once
+  const ids = await Book.find({
     $or: [
       { coverImage: { $regex: '^data:image' } },
       { images: { $regex: '^data:image' } }
     ]
-  });
+  }).select('_id').lean();
 
-  console.log(`Found ${books.length} book(s) with base64 images to migrate.`);
+  console.log(`Found ${ids.length} book(s) with base64 images to migrate.`);
 
-  for (const book of books) {
-    let changed = false;
+  let done = 0;
+  for (const { _id } of ids) {
+    const book = await Book.findById(_id).lean();
+    const update = {};
 
-    if (book.coverImage && book.coverImage.startsWith('data:image')) {
-      try {
-        book.coverImage = await uploadBase64ToCloudinary(book.coverImage);
-        changed = true;
-        console.log(`  ✔ Migrated cover for: ${book.title}`);
-      } catch (err) {
-        console.error(`  ✘ Failed cover for: ${book.title}`, err.message);
+    try {
+      if (book.coverImage && book.coverImage.startsWith('data:image')) {
+        update.coverImage = await uploadBase64ToCloudinary(book.coverImage);
       }
-    }
 
-    if (Array.isArray(book.images) && book.images.length > 0) {
-      const newImages = [];
-      for (const img of book.images) {
-        if (img && img.startsWith('data:image')) {
-          try {
-            newImages.push(await uploadBase64ToCloudinary(img));
-            changed = true;
-          } catch (err) {
-            console.error(`  ✘ Failed gallery image for: ${book.title}`, err.message);
-            newImages.push(img); // keep the old one rather than losing it
-          }
-        } else {
-          newImages.push(img);
+      if (Array.isArray(book.images) && book.images.some(i => i && i.startsWith('data:image'))) {
+        const newImages = [];
+        for (const img of book.images) {
+          newImages.push(img && img.startsWith('data:image') ? await uploadBase64ToCloudinary(img) : img);
         }
+        update.images = newImages;
       }
-      book.images = newImages;
-    }
 
-    if (changed) {
-      await book.save();
+      if (Object.keys(update).length > 0) {
+        await Book.updateOne({ _id }, { $set: update });
+      }
+      done++;
+      console.log(`  ✔ (${done}/${ids.length}) ${book.title}`);
+    } catch (err) {
+      console.error(`  ✘ Failed: ${book.title}`, err.message);
     }
   }
 }
 
 async function migrateBanners() {
-  const banners = await Banner.find({ imageUrl: { $regex: '^data:image' } });
+  const ids = await Banner.find({ imageUrl: { $regex: '^data:image' } }).select('_id').lean();
+  console.log(`Found ${ids.length} banner(s) with base64 images to migrate.`);
 
-  console.log(`Found ${banners.length} banner(s) with base64 images to migrate.`);
-
-  for (const banner of banners) {
+  for (const { _id } of ids) {
+    const banner = await Banner.findById(_id).lean();
     try {
-      banner.imageUrl = await uploadBase64ToCloudinary(banner.imageUrl);
-      await banner.save();
-      console.log(`  ✔ Migrated banner: ${banner.title || banner._id}`);
+      const newUrl = await uploadBase64ToCloudinary(banner.imageUrl);
+      await Banner.updateOne({ _id }, { $set: { imageUrl: newUrl } });
+      console.log(`  ✔ Migrated banner: ${banner.title || _id}`);
     } catch (err) {
-      console.error(`  ✘ Failed banner: ${banner.title || banner._id}`, err.message);
+      console.error(`  ✘ Failed banner: ${banner.title || _id}`, err.message);
     }
   }
 }
 
 async function run() {
-  const mongoUri = process.env.MONGODB_URI;
-  await mongoose.connect(mongoUri);
+  await mongoose.connect(process.env.MONGODB_URI);
   console.log('Connected to MongoDB. Starting migration...\n');
 
   await migrateBooks();
